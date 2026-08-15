@@ -1,0 +1,56 @@
+.mei-wrap { max-width: none; }
+.mei-profile-switcher { float: right; margin-top: -42px; }
+.mei-profile-title { margin-bottom: 4px; }
+.mei-timestamps { color: #50575e; margin-top: 0; }
+.mei-month-tabs { display: flex; flex-wrap: wrap; gap: 2px; overflow: visible; padding: 8px 0 0; border-bottom: 1px solid #c3c4c7; }
+.mei-month-tabs a { flex: 0 0 auto; padding: 8px 11px; border: 1px solid #c3c4c7; border-bottom: 0; background: #f6f7f7; color: #1d2327; text-decoration: none; }
+.mei-month-tabs a.is-active { background: #fff; font-weight: 600; margin-bottom: -1px; padding-bottom: 9px; }
+.mei-month-tabs a.is-past { opacity: .48; }
+.mei-month-select { display: none; }
+.mei-table-scroll { overflow: auto; max-height: calc(100vh - 300px); min-height: 240px; background: #fff; border: 1px solid #c3c4c7; border-top: 0; }
+.mei-event-table { border: 0; border-collapse: separate; border-spacing: 0; min-width: 2250px; }
+.mei-event-table thead th { position: sticky; top: 0; z-index: 3; background: #f0f0f1; box-shadow: inset 0 -1px #c3c4c7; white-space: nowrap; }
+.mei-event-table th[data-sort] { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.mei-event-table td { vertical-align: top; min-width: 125px; }
+.mei-event-table td:nth-child(2) { min-width: 230px; }
+.mei-event-table td:nth-child(3) { min-width: 170px; }
+.mei-event-table td:nth-child(4) { min-width: 210px; }
+.mei-event-table input[type="text"], .mei-event-table input[type="url"], .mei-event-table input[type="number"], .mei-event-table input[type="date"], .mei-event-table input[type="datetime-local"], .mei-event-table textarea, .mei-event-table select { width: 100%; max-width: none; }
+.mei-event-table select[multiple] { min-width: 145px; }
+.mei-event-row.is-readonly { opacity: .62; }
+.mei-actions-column, .mei-event-table td:first-child { position: sticky; left: 0; z-index: 2; min-width: 34px; width: 34px; background: #fff; text-align: center; }
+.mei-actions-column { z-index: 4; background: #f0f0f1; }
+.mei-remove-row { font-size: 25px; line-height: 1; text-decoration: none; }
+.mei-content-excerpt { display: block; margin-top: 6px; color: #50575e; font-size: 12px; }
+.mei-image-preview { width: 90px; min-height: 40px; margin-bottom: 5px; }
+.mei-image-preview img { display: block; max-width: 90px; max-height: 75px; object-fit: contain; }
+.mei-sync-status small, .mei-sync-status a { display: block; margin-top: 5px; }
+.mei-status { display: inline-block; border-radius: 10px; padding: 2px 7px; background: #dcdcde; }
+.mei-status-synced { background: #d7f0df; color: #005c12; }
+.mei-status-error { background: #f8d7da; color: #8a2424; }
+.mei-status-changed, .mei-status-new { background: #fcf0c4; color: #6e4f00; }
+.mei-form-actions { position: sticky; bottom: 0; z-index: 5; margin: 0; padding: 10px; border: 1px solid #c3c4c7; background: #fff; }
+.mei-import-form { margin-top: 18px; padding: 12px; border-left: 4px solid #72aee6; background: #fff; }
+.mei-import-form p { margin: 0 0 6px; }
+.mei-modal[hidden] { display: none; }
+.mei-modal { position: fixed; inset: 0; z-index: 100100; display: grid; place-items: center; padding: 25px; }
+.mei-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.62); }
+.mei-modal-dialog { position: relative; width: min(850px, 94vw); max-height: 90vh; overflow: auto; padding: 20px; background: #fff; box-shadow: 0 8px 40px rgba(0,0,0,.35); }
+.mei-modal-open { overflow: hidden; }
+.mei-profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
+.mei-profile-grid label > span { display: block; margin-bottom: 5px; font-weight: 600; }
+.mei-profile-grid input[type="text"], .mei-profile-grid input[type="number"], .mei-profile-grid select { width: 100%; }
+.mei-profile-grid select[multiple] { min-height: 130px; }
+.mei-checkboxes { display: flex; flex-wrap: wrap; gap: 22px; margin-top: 16px; }
+
+@media (max-width: 782px) {
+	.mei-profile-switcher { float: none; margin: 0 0 12px; }
+	.mei-table-scroll { max-height: calc(100vh - 360px); }
+	.mei-event-table { min-width: 2050px; }
+	.mei-month-tabs { display: none; }
+	.mei-month-select { display: block; margin: 12px 0; }
+	.mei-month-select span { display: block; margin-bottom: 4px; font-weight: 600; }
+	.mei-month-select select { width: 100%; max-width: 320px; }
+	.mei-modal { padding: 8px; }
+	.mei-modal-dialog { width: calc(100vw - 32px); }
+}
