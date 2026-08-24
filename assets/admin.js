@@ -149,12 +149,31 @@
 	if (addButton && template) addButton.addEventListener('click', addRow);
 	if (monthSelect) monthSelect.addEventListener('change', function () { window.location.href = this.value; });
 
-	document.querySelectorAll('.mei-event-table th[data-sort]').forEach(function (heading) {
-		let ascending = true;
-		heading.tabIndex = 0;
-		heading.setAttribute('role', 'button');
+	const sortHeadings = Array.from(document.querySelectorAll('.mei-event-table th[data-sort]'));
+
+	function setSortState(activeHeading, direction) {
+		sortHeadings.forEach(function (heading) {
+			const active = heading === activeHeading;
+			const button = heading.querySelector('.mei-sort-button');
+			const indicator = heading.querySelector('.mei-sort-indicator');
+			const status = heading.querySelector('.mei-sort-status');
+			heading.setAttribute('aria-sort', active ? direction : 'none');
+			if (indicator) indicator.textContent = active ? (direction === 'ascending' ? '▲' : '▼') : '↕';
+			if (status) {
+				status.textContent = active
+					? (direction === 'ascending' ? meiAdmin.sortedAscending + ' ' + meiAdmin.sortDescending : meiAdmin.sortedDescending + ' ' + meiAdmin.sortAscending)
+					: meiAdmin.sortAscending;
+			}
+			if (button) button.title = active && direction === 'ascending' ? meiAdmin.sortDescending : meiAdmin.sortAscending;
+		});
+	}
+
+	sortHeadings.forEach(function (heading) {
+		const button = heading.querySelector('.mei-sort-button');
+		if (!button) return;
 		function sort() {
 			const key = heading.dataset.sort;
+			const ascending = heading.getAttribute('aria-sort') !== 'ascending';
 			const sorted = Array.from(rows.querySelectorAll('.mei-event-row')).sort(function (left, right) {
 				let a = left.dataset[key] || '';
 				let b = right.dataset[key] || '';
@@ -163,10 +182,9 @@
 				return (a < b ? -1 : a > b ? 1 : 0) * (ascending ? 1 : -1);
 			});
 			sorted.forEach(function (row) { rows.appendChild(row); });
-			ascending = !ascending;
+			setSortState(heading, ascending ? 'ascending' : 'descending');
 		}
-		heading.addEventListener('click', sort);
-		heading.addEventListener('keydown', function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); sort(); } });
+		button.addEventListener('click', sort);
 	});
 
 	if (modal) {

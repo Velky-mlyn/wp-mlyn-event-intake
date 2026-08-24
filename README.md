@@ -17,6 +17,23 @@ An empty selector whitelist allows all existing values; selecting one or more va
 
 Fee values distinguish three states: empty stores no fee and hides the fee row in the Velký mlýn event template, `0` means a free event, and a positive number is a paid amount.
 
+The **Název**, **Začátek**, **Konec**, and **Vstupné** headers sort the
+currently displayed rows in the browser. An arrow identifies the active sort
+column and direction. The initial order is **Začátek** ascending, matching the
+database query; sorting is not persisted after leaving the page.
+
+## Changelog
+
+### 0.2.5
+
+- Added a pointer cursor and hover tooltip to the event-row remove button.
+
+### 0.2.4
+
+- Fixed sorting for WordPress locales such as `cs_CZ` by passing JavaScript the valid `cs-CZ` language tag.
+- Added visible direction indicators and accessible state for sortable table headers.
+- Made the first click on the initially ascending **Začátek** header sort descending.
+
 ## Data retention
 
 Organizer profiles and intake rows are deliberately retained on uninstall. Intake rows use stable UUIDs and store the linked TEC event ID so synchronization never relies on matching titles or dates.

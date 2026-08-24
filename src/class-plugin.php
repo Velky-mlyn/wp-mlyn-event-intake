@@ -198,7 +198,11 @@ final class Plugin {
 				'contentTitle'  => __( 'Text akce', 'mlyn-event-intake' ),
 				'untitled'      => __( 'Akce bez názvu', 'mlyn-event-intake' ),
 				'monthError'    => __( 'Řádek %1$d: začátek akce musí být v měsíci %2$s.', 'mlyn-event-intake' ),
-				'locale'        => get_user_locale(),
+				'locale'        => str_replace( '_', '-', get_user_locale() ),
+				'sortAscending'   => __( 'Aktivovat pro vzestupné řazení.', 'mlyn-event-intake' ),
+				'sortDescending'  => __( 'Aktivovat pro sestupné řazení.', 'mlyn-event-intake' ),
+				'sortedAscending' => __( 'Aktuálně seřazeno vzestupně.', 'mlyn-event-intake' ),
+				'sortedDescending' => __( 'Aktuálně seřazeno sestupně.', 'mlyn-event-intake' ),
 			)
 		);
 	}
@@ -414,7 +418,7 @@ final class Plugin {
 			<input type="hidden" name="action" value="mei_save_events"><input type="hidden" name="profile_id" value="<?php echo esc_attr( (string) $profile_id ); ?>"><input type="hidden" name="month" value="<?php echo esc_attr( $month ); ?>"><?php wp_nonce_field( 'mei_save_events_' . $profile_id . '_' . $month ); ?>
 			<div class="mei-table-scroll"><table class="widefat striped mei-event-table"><thead><tr>
 				<th class="mei-actions-column"><span class="screen-reader-text"><?php esc_html_e( 'Akce', 'mlyn-event-intake' ); ?></span></th>
-				<th data-sort="title"><?php esc_html_e( 'Název', 'mlyn-event-intake' ); ?> *</th><th><?php esc_html_e( 'Text akce', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Krátký popis', 'mlyn-event-intake' ); ?></th><th data-sort="start"><?php esc_html_e( 'Začátek', 'mlyn-event-intake' ); ?> *</th><th data-sort="end"><?php esc_html_e( 'Konec', 'mlyn-event-intake' ); ?> *</th><th><?php esc_html_e( 'Celodenní', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Místo', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Pořadatel', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Web', 'mlyn-event-intake' ); ?></th><th data-sort="cost"><?php esc_html_e( 'Vstupné', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Štítky', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Rubriky akce', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Obrázek', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Stav', 'mlyn-event-intake' ); ?></th>
+				<?php $this->render_sortable_heading( 'title', __( 'Název', 'mlyn-event-intake' ), true ); ?><th><?php esc_html_e( 'Text akce', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Krátký popis', 'mlyn-event-intake' ); ?></th><?php $this->render_sortable_heading( 'start', __( 'Začátek', 'mlyn-event-intake' ), true, true ); ?><?php $this->render_sortable_heading( 'end', __( 'Konec', 'mlyn-event-intake' ), true ); ?><th><?php esc_html_e( 'Celodenní', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Místo', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Pořadatel', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Web', 'mlyn-event-intake' ); ?></th><?php $this->render_sortable_heading( 'cost', __( 'Vstupné', 'mlyn-event-intake' ) ); ?><th><?php esc_html_e( 'Štítky', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Rubriky akce', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Obrázek', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Stav', 'mlyn-event-intake' ); ?></th>
 			</tr></thead><tbody id="mei-event-rows"><?php foreach ( $rows as $index => $row ) { $this->render_event_row( (string) $index, $row, $allowed, $past_month || $row['end_at'] < current_time( 'mysql' ) ); } ?></tbody></table></div>
 			<?php if ( ! $past_month ) : ?><p class="mei-form-actions"><button type="button" class="button" id="mei-add-row"><?php esc_html_e( 'Přidat akci', 'mlyn-event-intake' ); ?></button> <?php submit_button( __( 'Uložit akce', 'mlyn-event-intake' ), 'primary', 'submit', false ); ?></p><?php endif; ?>
 		</form>
@@ -422,6 +426,23 @@ final class Plugin {
 		<?php if ( current_user_can( self::CAP_IMPORT ) ) : ?>
 			<form class="mei-import-form" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" method="post"><input type="hidden" name="action" value="mei_import_events"><input type="hidden" name="profile_id" value="<?php echo esc_attr( (string) $profile_id ); ?>"><input type="hidden" name="month" value="<?php echo esc_attr( $month ); ?>"><?php wp_nonce_field( 'mei_import_events_' . $profile_id ); ?><?php submit_button( __( 'Importovat všechny změněné aktivní akce', 'mlyn-event-intake' ), 'secondary', 'submit', false, array( 'onclick' => "return window.confirm('" . esc_js( __( 'Importovat všechny změněné aktivní akce tohoto profilu?', 'mlyn-event-intake' ) ) . "');" ) ); ?><p class="description"><?php esc_html_e( 'Nové akce se vytvoří jako koncepty. U již propojených akcí zůstane zachovaný jejich současný stav publikace.', 'mlyn-event-intake' ); ?></p></form>
 		<?php endif; ?>
+		<?php
+	}
+
+	private function render_sortable_heading( string $key, string $label, bool $required = false, bool $initial = false ): void {
+		$state       = $initial ? 'ascending' : 'none';
+		$indicator   = $initial ? '▲' : '↕';
+		$status_text = $initial
+			? __( 'Aktuálně seřazeno vzestupně. Aktivovat pro sestupné řazení.', 'mlyn-event-intake' )
+			: __( 'Aktivovat pro vzestupné řazení.', 'mlyn-event-intake' );
+		?>
+		<th data-sort="<?php echo esc_attr( $key ); ?>" aria-sort="<?php echo esc_attr( $state ); ?>">
+			<button type="button" class="mei-sort-button" title="<?php echo esc_attr( $initial ? __( 'Seřadit sestupně', 'mlyn-event-intake' ) : __( 'Seřadit vzestupně', 'mlyn-event-intake' ) ); ?>">
+				<span><?php echo esc_html( $label ); ?><?php echo $required ? ' *' : ''; ?></span>
+				<span class="mei-sort-indicator" aria-hidden="true"><?php echo esc_html( $indicator ); ?></span>
+				<span class="screen-reader-text mei-sort-status"><?php echo esc_html( $status_text ); ?></span>
+			</button>
+		</th>
 		<?php
 	}
 
@@ -434,7 +455,7 @@ final class Plugin {
 		$image_url = ! empty( $row['image_id'] ) ? wp_get_attachment_image_url( (int) $row['image_id'], 'thumbnail' ) : '';
 		?>
 		<tr class="mei-event-row<?php echo $readonly ? ' is-readonly' : ''; ?>" data-start="<?php echo esc_attr( $start ); ?>" data-end="<?php echo esc_attr( $end ); ?>" data-title="<?php echo esc_attr( $row['title'] ?? '' ); ?>" data-cost="<?php echo esc_attr( $row['cost'] ?? '' ); ?>">
-			<td><input type="hidden" name="rows[<?php echo esc_attr( $index ); ?>][uuid]" value="<?php echo esc_attr( $uuid ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><button type="button" class="button-link-delete mei-remove-row"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> aria-label="<?php esc_attr_e( 'Odstranit akci', 'mlyn-event-intake' ); ?>">×</button></td>
+			<td><input type="hidden" name="rows[<?php echo esc_attr( $index ); ?>][uuid]" value="<?php echo esc_attr( $uuid ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><button type="button" class="button-link-delete mei-remove-row"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> aria-label="<?php esc_attr_e( 'Odstranit akci', 'mlyn-event-intake' ); ?>" title="<?php esc_attr_e( 'Odstranit akci', 'mlyn-event-intake' ); ?>">×</button></td>
 			<td><input type="text" class="mei-title" name="rows[<?php echo esc_attr( $index ); ?>][title]" required value="<?php echo esc_attr( $row['title'] ?? '' ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>></td>
 			<td><textarea class="mei-content" name="rows[<?php echo esc_attr( $index ); ?>][content]" hidden<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><?php echo esc_textarea( $row['content'] ?? '' ); ?></textarea><button type="button" class="button mei-edit-content"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><?php esc_html_e( 'Upravit text', 'mlyn-event-intake' ); ?></button><span class="mei-content-excerpt"><?php echo esc_html( wp_html_excerpt( wp_strip_all_tags( $row['content'] ?? '' ), 70, '…' ) ); ?></span></td>
 			<td><textarea name="rows[<?php echo esc_attr( $index ); ?>][excerpt]" rows="3"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><?php echo esc_textarea( $row['excerpt'] ?? '' ); ?></textarea></td>

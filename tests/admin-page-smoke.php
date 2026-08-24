@@ -58,7 +58,7 @@ try {
 	ob_start();
 	MEI\Plugin::instance()->render_events_page();
 	$html = ob_get_clean();
-	foreach ( array( 'MEI disposable UI profile', 'Poslední úprava:', 'Rubriky akce', 'Importovat všechny změněné aktivní akce', 'mei-row-template', 'Recovered unsaved row', '>Architektura<', '>Knihovna<', 'placeholder="Bez údaje"' ) as $expected ) {
+	foreach ( array( 'MEI disposable UI profile', 'Poslední úprava:', 'Rubriky akce', 'Importovat všechny změněné aktivní akce', 'mei-row-template', 'Recovered unsaved row', '>Architektura<', '>Knihovna<', 'placeholder="Bez údaje"', 'data-sort="start" aria-sort="ascending"', 'class="mei-sort-indicator"', 'class="screen-reader-text mei-sort-status"', 'title="Odstranit akci"' ) as $expected ) {
 		if ( false === strpos( $html, $expected ) ) {
 			throw new RuntimeException( 'Admin page output is missing: ' . $expected );
 		}
