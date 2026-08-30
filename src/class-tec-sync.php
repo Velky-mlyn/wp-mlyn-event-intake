@@ -12,6 +12,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class TEC_Sync {
+	private const EVENT_CAPACITY  = '_mlyn_event_capacity';
+	private const EVENT_AVAILABLE = '_mlyn_event_available_places';
+	private const EVENT_NOTE      = '_mlyn_event_occupancy_note';
+
 	private $database;
 
 	public function __construct( Database $database ) {
@@ -64,10 +68,15 @@ final class TEC_Sync {
 					'sha256',
 					wp_json_encode(
 						array(
-							'sync_revision'  => 2,
+							'sync_revision'  => 3,
 							'event'         => $args,
 							'currency_code' => $settings['currency_code'],
 							'event_status'  => $settings['event_status'],
+							'occupancy'     => array(
+								'capacity'         => $row['capacity'],
+								'available_places' => $row['available_places'],
+								'note'             => $row['occupancy_note'],
+							),
 						)
 					)
 				);
@@ -172,5 +181,22 @@ final class TEC_Sync {
 		} else {
 			delete_post_thumbnail( $event_id );
 		}
+
+		$this->set_count_meta( $event_id, self::EVENT_CAPACITY, $row['capacity'] );
+		$this->set_count_meta( $event_id, self::EVENT_AVAILABLE, $row['available_places'] );
+		if ( '' === $row['occupancy_note'] ) {
+			delete_post_meta( $event_id, self::EVENT_NOTE );
+		} else {
+			update_post_meta( $event_id, self::EVENT_NOTE, $row['occupancy_note'] );
+		}
+	}
+
+	private function set_count_meta( int $event_id, string $meta_key, $value ): void {
+		$value = trim( (string) $value );
+		if ( '' === $value || ! preg_match( '/^\d+$/', $value ) ) {
+			delete_post_meta( $event_id, $meta_key );
+			return;
+		}
+		update_post_meta( $event_id, $meta_key, (int) $value );
 	}
 }

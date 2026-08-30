@@ -20,6 +20,13 @@ $event_id   = 0;
 
 try {
 	$assert( $sync->is_available(), 'The Events Calendar adapter is unavailable.' );
+	$columns = $wpdb->get_col( "SHOW COLUMNS FROM {$wpdb->prefix}mei_event_rows", 0 ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	foreach ( array( 'capacity', 'available_places', 'occupancy_note' ) as $column ) {
+		$assert( in_array( $column, $columns, true ), 'The intake occupancy database migration is incomplete.' );
+	}
+	$admins = get_users( array( 'role' => 'administrator', 'number' => 1, 'fields' => 'ids' ) );
+	$assert( ! empty( $admins ), 'No administrator is available for the integration test.' );
+	wp_set_current_user( (int) $admins[0] );
 	$role = get_role( 'mlyn_event_organizer' );
 	$assert( $role && ! empty( $role->capabilities['manage_mlyn_event_intake'] ), 'Organizer role or capability is missing.' );
 
@@ -45,6 +52,8 @@ try {
 		'hide_from_upcoming'  => false,
 		'sticky'              => false,
 		'featured'            => true,
+		'default_capacity'    => '',
+		'default_available_places' => '0',
 	);
 	$start        = new DateTimeImmutable( 'first day of next month 09:00:00', wp_timezone() );
 	$end          = $start->modify( '+2 hours' );
@@ -62,6 +71,9 @@ try {
 		'organizer_id' => $organizer_id,
 		'website'      => 'https://example.test/event',
 		'cost'         => '0',
+		'capacity'     => '',
+		'available_places' => '0',
+		'occupancy_note' => 'ZŠ Zenklova',
 		'tag_ids'      => array_map( 'intval', (array) $tag_ids ),
 		'category_ids' => array_map( 'intval', (array) $category_ids ),
 		'image_id'     => 0,
@@ -79,12 +91,26 @@ try {
 	$assert( 'suffix' === get_post_meta( $event_id, '_EventCurrencyPosition', true ), 'The imported currency position is wrong.' );
 	$assert( 'CZK' === get_post_meta( $event_id, '_EventCurrencyCode', true ), 'The imported currency code is wrong.' );
 	$assert( metadata_exists( 'post', $event_id, '_EventCost' ) && '0' === get_post_meta( $event_id, '_EventCost', true ), 'An explicit zero fee was not preserved as free.' );
+	$assert( ! metadata_exists( 'post', $event_id, '_mlyn_event_capacity' ), 'A blank default capacity unexpectedly created metadata.' );
+	$assert( metadata_exists( 'post', $event_id, '_mlyn_event_available_places' ) && '0' === get_post_meta( $event_id, '_mlyn_event_available_places', true ), 'Zero available places were not preserved without capacity.' );
+	$assert( 'ZŠ Zenklova' === get_post_meta( $event_id, '_mlyn_event_occupancy_note', true ), 'The occupancy note was not imported.' );
 	$assert( $venue_id === (int) get_post_meta( $event_id, '_EventVenueID', true ), 'The imported venue is wrong.' );
 	$assert( in_array( $organizer_id, array_map( 'intval', get_post_meta( $event_id, '_EventOrganizerID', false ) ), true ), 'The imported organizer is wrong.' );
 	$assert( array_map( 'intval', (array) $tag_ids ) === wp_get_object_terms( $event_id, 'post_tag', array( 'fields' => 'ids' ) ), 'The imported tags are wrong.' );
 	$assert( array_map( 'intval', (array) $category_ids ) === wp_get_object_terms( $event_id, 'tribe_events_cat', array( 'fields' => 'ids' ) ), 'The imported categories are wrong.' );
 
 	wp_update_post( array( 'ID' => $event_id, 'post_status' => 'publish' ) );
+	$_POST['mei_event_occupancy_nonce']  = wp_create_nonce( 'mei_save_event_occupancy_' . $event_id );
+	$_POST['mei_event_capacity']         = '30';
+	$_POST['mei_event_available_places'] = '5';
+	$_POST['mei_event_occupancy_note']   = 'ZŠ Bohumila Hrabala';
+	MEI\Plugin::instance()->save_event_occupancy( $event_id, get_post( $event_id ) );
+	unset( $_POST['mei_event_occupancy_nonce'], $_POST['mei_event_capacity'], $_POST['mei_event_available_places'], $_POST['mei_event_occupancy_note'] );
+	$saved = $database->get_month_rows( $profile_id, $month );
+	$assert( '30' === $saved[0]['capacity'] && '5' === $saved[0]['available_places'] && 'ZŠ Bohumila Hrabala' === $saved[0]['occupancy_note'], 'An event-editor occupancy change did not update its linked intake row.' );
+	$row['capacity']         = '30';
+	$row['available_places'] = '5';
+	$row['occupancy_note']   = 'ZŠ Bohumila Hrabala';
 	$row['title']    = 'MEI disposable event updated';
 	$row['content']  = '<p>Updated content.</p>';
 	$row['all_day']  = true;
@@ -96,6 +122,7 @@ try {
 	$assert( 'MEI disposable event updated' === get_the_title( $event_id ), 'The linked event title was not updated.' );
 	$assert( 'publish' === get_post_status( $event_id ), 'An update did not preserve the event publication status.' );
 	$assert( 'yes' === get_post_meta( $event_id, '_EventAllDay', true ), 'The updated event is not a multi-day all-day event.' );
+	$assert( '30' === get_post_meta( $event_id, '_mlyn_event_capacity', true ) && '5' === get_post_meta( $event_id, '_mlyn_event_available_places', true ) && 'ZŠ Bohumila Hrabala' === get_post_meta( $event_id, '_mlyn_event_occupancy_note', true ), 'A re-import did not preserve synchronized occupancy.' );
 
 	$settings['event_status'] = 'canceled';
 	$settings['featured']     = false;

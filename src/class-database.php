@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Database {
-	private const VERSION = '1';
+	private const VERSION = '2';
 	private $table;
 
 	public function __construct() {
@@ -22,6 +22,7 @@ final class Database {
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
 		$table           = $wpdb->prefix . 'mei_event_rows';
+		$previous_version = (string) get_option( 'mei_db_version', '' );
 		$charset_collate = $wpdb->get_charset_collate();
 		$sql             = "CREATE TABLE {$table} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -38,6 +39,9 @@ final class Database {
 			organizer_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			website text NOT NULL,
 			cost varchar(32) NOT NULL DEFAULT '',
+			capacity bigint(20) unsigned NULL DEFAULT NULL,
+			available_places bigint(20) unsigned NULL DEFAULT NULL,
+			occupancy_note text NOT NULL,
 			tag_ids longtext NOT NULL,
 			category_ids longtext NOT NULL,
 			image_id bigint(20) unsigned NOT NULL DEFAULT 0,
@@ -59,7 +63,37 @@ final class Database {
 		) {$charset_collate};";
 
 		dbDelta( $sql );
+		if ( version_compare( $previous_version, '2', '<' ) ) {
+			self::backfill_occupancy( $table );
+		}
 		update_option( 'mei_db_version', self::VERSION, false );
+	}
+
+	public static function maybe_upgrade(): void {
+		if ( self::VERSION !== (string) get_option( 'mei_db_version', '' ) ) {
+			self::install();
+		}
+	}
+
+	private static function backfill_occupancy( string $table ): void {
+		global $wpdb;
+		$rows = $wpdb->get_results( "SELECT id, tec_event_id FROM {$table} WHERE tec_event_id > 0", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		foreach ( $rows as $row ) {
+			$event_id = (int) $row['tec_event_id'];
+			$values   = array();
+			if ( metadata_exists( 'post', $event_id, '_mlyn_event_capacity' ) ) {
+				$values['capacity'] = max( 0, (int) get_post_meta( $event_id, '_mlyn_event_capacity', true ) );
+			}
+			if ( metadata_exists( 'post', $event_id, '_mlyn_event_available_places' ) ) {
+				$values['available_places'] = max( 0, (int) get_post_meta( $event_id, '_mlyn_event_available_places', true ) );
+			}
+			if ( metadata_exists( 'post', $event_id, '_mlyn_event_occupancy_note' ) ) {
+				$values['occupancy_note'] = sanitize_textarea_field( get_post_meta( $event_id, '_mlyn_event_occupancy_note', true ) );
+			}
+			if ( $values ) {
+				$wpdb->update( $table, $values, array( 'id' => (int) $row['id'] ) );
+			}
+		}
 	}
 
 	public function get_month_rows( int $profile_id, string $month, bool $include_deleted = false ): array {
@@ -185,6 +219,26 @@ final class Database {
 		);
 	}
 
+	public function update_occupancy_by_event( int $event_id, ?int $capacity, ?int $available, string $note, int $user_id ): void {
+		global $wpdb;
+		$wpdb->update(
+			$this->table,
+			array(
+				'capacity'         => $capacity,
+				'available_places' => $available,
+				'occupancy_note'   => $note,
+				'updated_by'       => $user_id,
+				'updated_at'       => current_time( 'mysql' ),
+				'sync_status'      => 'changed',
+				'sync_error'       => '',
+			),
+			array(
+				'tec_event_id' => $event_id,
+				'deleted_at'   => null,
+			)
+		);
+	}
+
 	private function to_record( array $row, int $profile_id, string $month, int $user_id, string $now ): array {
 		return array(
 			'profile_id'    => $profile_id,
@@ -199,6 +253,9 @@ final class Database {
 			'organizer_id'  => $row['organizer_id'],
 			'website'       => $row['website'],
 			'cost'          => $row['cost'],
+			'capacity'      => '' === $row['capacity'] ? null : (int) $row['capacity'],
+			'available_places' => '' === $row['available_places'] ? null : (int) $row['available_places'],
+			'occupancy_note' => $row['occupancy_note'],
 			'tag_ids'       => wp_json_encode( array_values( $row['tag_ids'] ) ),
 			'category_ids'  => wp_json_encode( array_values( $row['category_ids'] ) ),
 			'image_id'      => $row['image_id'],
@@ -209,7 +266,7 @@ final class Database {
 	}
 
 	private function editable_hash( array $row ): string {
-		$keys = array( 'title', 'content', 'excerpt', 'start_at', 'end_at', 'all_day', 'venue_id', 'organizer_id', 'website', 'cost', 'tag_ids', 'category_ids', 'image_id' );
+		$keys = array( 'title', 'content', 'excerpt', 'start_at', 'end_at', 'all_day', 'venue_id', 'organizer_id', 'website', 'cost', 'capacity', 'available_places', 'occupancy_note', 'tag_ids', 'category_ids', 'image_id' );
 		$data = array();
 		foreach ( $keys as $key ) {
 			$data[ $key ] = $row[ $key ] ?? null;
@@ -226,6 +283,9 @@ final class Database {
 		$data['organizer_id'] = (int) $data['organizer_id'];
 		$data['image_id']     = (int) $data['image_id'];
 		$data['cost']         = (string) $data['cost'];
+		$data['capacity']     = null === $data['capacity'] || '' === $data['capacity'] ? '' : (string) (int) $data['capacity'];
+		$data['available_places'] = null === $data['available_places'] || '' === $data['available_places'] ? '' : (string) (int) $data['available_places'];
+		$data['occupancy_note'] = (string) $data['occupancy_note'];
 		return hash( 'sha256', wp_json_encode( $data ) );
 	}
 
@@ -237,6 +297,9 @@ final class Database {
 		$row['organizer_id']   = (int) $row['organizer_id'];
 		$row['image_id']       = (int) $row['image_id'];
 		$row['tec_event_id']   = (int) $row['tec_event_id'];
+		$row['capacity']       = null === $row['capacity'] ? '' : (string) (int) $row['capacity'];
+		$row['available_places'] = null === $row['available_places'] ? '' : (string) (int) $row['available_places'];
+		$row['occupancy_note'] = (string) $row['occupancy_note'];
 		$row['tag_ids']        = array_map( 'intval', json_decode( $row['tag_ids'], true ) ?: array() );
 		$row['category_ids']   = array_map( 'intval', json_decode( $row['category_ids'], true ) ?: array() );
 		return $row;

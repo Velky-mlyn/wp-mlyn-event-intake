@@ -8,7 +8,7 @@
 .mei-month-tabs a.is-past { opacity: .48; }
 .mei-month-select { display: none; }
 .mei-table-scroll { overflow: auto; max-height: calc(100vh - 300px); min-height: 240px; background: #fff; border: 1px solid #c3c4c7; border-top: 0; }
-.mei-event-table { border: 0; border-collapse: separate; border-spacing: 0; min-width: 2250px; }
+.mei-event-table { border: 0; border-collapse: separate; border-spacing: 0; min-width: 2700px; }
 .mei-event-table thead th { position: sticky; top: 0; z-index: 3; background: #f0f0f1; box-shadow: inset 0 -1px #c3c4c7; white-space: nowrap; }
 .mei-sort-button { display: inline-flex; align-items: center; gap: 5px; margin: -4px -6px; padding: 4px 6px; border: 0; border-radius: 2px; background: transparent; color: inherit; font: inherit; font-weight: inherit; line-height: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 .mei-sort-button:hover { color: #135e96; }
@@ -51,7 +51,7 @@
 @media (max-width: 782px) {
 	.mei-profile-switcher { float: none; margin: 0 0 12px; }
 	.mei-table-scroll { max-height: calc(100vh - 360px); }
-	.mei-event-table { min-width: 2050px; }
+	.mei-event-table { min-width: 2500px; }
 	.mei-month-tabs { display: none; }
 	.mei-month-select { display: block; margin: 12px 0; }
 	.mei-month-select span { display: block; margin-bottom: 4px; font-weight: 600; }

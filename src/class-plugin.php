@@ -19,6 +19,9 @@ final class Plugin {
 	private const PROFILE_USER     = '_mei_user_id';
 	private const PROFILE_SETTINGS = '_mei_profile_settings';
 	private const OPTION_SETTINGS  = 'mei_settings';
+	private const EVENT_CAPACITY   = '_mlyn_event_capacity';
+	private const EVENT_AVAILABLE  = '_mlyn_event_available_places';
+	private const EVENT_NOTE       = '_mlyn_event_occupancy_note';
 
 	private static $instance;
 	private $database;
@@ -54,10 +57,12 @@ final class Plugin {
 	}
 
 	private function __construct() {
+		Database::maybe_upgrade();
 		$this->database = new Database();
 		$this->sync     = new TEC_Sync( $this->database );
 
 		add_action( 'init', array( $this, 'register_profile_type' ) );
+		add_action( 'init', array( $this, 'register_event_meta' ) );
 		add_action( 'admin_menu', array( $this, 'register_admin_menu' ), 20 );
 		add_action( 'admin_menu', array( $this, 'restrict_organizer_menu' ), 999 );
 		add_action( 'admin_init', array( $this, 'redirect_organizer_dashboard' ) );
@@ -65,6 +70,8 @@ final class Plugin {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
 		add_action( 'add_meta_boxes_' . self::PROFILE_TYPE, array( $this, 'register_profile_meta_boxes' ) );
 		add_action( 'save_post_' . self::PROFILE_TYPE, array( $this, 'save_profile' ), 10, 2 );
+		add_action( 'add_meta_boxes_tribe_events', array( $this, 'register_event_occupancy_meta_box' ) );
+		add_action( 'save_post_tribe_events', array( $this, 'save_event_occupancy' ), 10, 2 );
 		add_action( 'admin_notices', array( $this, 'render_dependency_notice' ) );
 		add_action( 'admin_post_mei_save_events', array( $this, 'save_events' ) );
 		add_action( 'admin_post_mei_import_events', array( $this, 'import_events' ) );
@@ -110,6 +117,90 @@ final class Plugin {
 				'map_meta_cap'        => false,
 			)
 		);
+	}
+
+	public function register_event_meta(): void {
+		foreach ( array( self::EVENT_CAPACITY, self::EVENT_AVAILABLE ) as $meta_key ) {
+			register_post_meta(
+				'tribe_events',
+				$meta_key,
+				array(
+					'type'              => 'integer',
+					'single'            => true,
+					'show_in_rest'      => false,
+					'sanitize_callback' => static function ( $value ): int {
+						return max( 0, (int) $value );
+					},
+					'auth_callback'     => static function ( $allowed, $key, $post_id ): bool {
+						return current_user_can( 'edit_post', (int) $post_id );
+					},
+				)
+			);
+		}
+		register_post_meta(
+			'tribe_events',
+			self::EVENT_NOTE,
+			array(
+				'type'              => 'string',
+				'single'            => true,
+				'show_in_rest'      => false,
+				'sanitize_callback' => 'sanitize_textarea_field',
+				'auth_callback'     => static function ( $allowed, $key, $post_id ): bool {
+					return current_user_can( 'edit_post', (int) $post_id );
+				},
+			)
+		);
+	}
+
+	public function register_event_occupancy_meta_box(): void {
+		add_meta_box(
+			'mei-event-occupancy',
+			__( 'Obsazenost', 'mlyn-event-intake' ),
+			array( $this, 'render_event_occupancy_meta_box' ),
+			'tribe_events',
+			'side',
+			'low'
+		);
+	}
+
+	public function render_event_occupancy_meta_box( WP_Post $post ): void {
+		$capacity  = metadata_exists( 'post', $post->ID, self::EVENT_CAPACITY ) ? (string) get_post_meta( $post->ID, self::EVENT_CAPACITY, true ) : '';
+		$available = metadata_exists( 'post', $post->ID, self::EVENT_AVAILABLE ) ? (string) get_post_meta( $post->ID, self::EVENT_AVAILABLE, true ) : '';
+		$note      = metadata_exists( 'post', $post->ID, self::EVENT_NOTE ) ? (string) get_post_meta( $post->ID, self::EVENT_NOTE, true ) : '';
+		wp_nonce_field( 'mei_save_event_occupancy_' . $post->ID, 'mei_event_occupancy_nonce' );
+		?>
+		<p><label for="mei-event-capacity"><strong><?php esc_html_e( 'Kapacita', 'mlyn-event-intake' ); ?></strong></label><br><input id="mei-event-capacity" class="widefat" type="number" min="0" step="1" name="mei_event_capacity" value="<?php echo esc_attr( $capacity ); ?>"></p>
+		<p><label for="mei-event-available"><strong><?php esc_html_e( 'Volná místa', 'mlyn-event-intake' ); ?></strong></label><br><input id="mei-event-available" class="widefat" type="number" min="0" step="1" name="mei_event_available_places" value="<?php echo esc_attr( $available ); ?>"></p>
+		<p><label for="mei-event-occupancy-note"><strong><?php esc_html_e( 'Poznámka k obsazenosti', 'mlyn-event-intake' ); ?></strong></label><br><textarea id="mei-event-occupancy-note" class="widefat" rows="3" maxlength="500" name="mei_event_occupancy_note"><?php echo esc_textarea( $note ); ?></textarea></p>
+		<p class="description"><?php esc_html_e( 'Pole mohou zůstat prázdná. Nula volných míst označí akci jako obsazenou i bez uvedené kapacity.', 'mlyn-event-intake' ); ?></p>
+		<?php
+	}
+
+	public function save_event_occupancy( int $post_id, WP_Post $post ): void {
+		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) || 'tribe_events' !== $post->post_type ) {
+			return;
+		}
+		if ( ! isset( $_POST['mei_event_occupancy_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['mei_event_occupancy_nonce'] ) ), 'mei_save_event_occupancy_' . $post_id ) ) {
+			return;
+		}
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
+		}
+
+		$capacity_valid  = true;
+		$available_valid = true;
+		$capacity        = $this->parse_nullable_count( $_POST['mei_event_capacity'] ?? '', $capacity_valid );
+		$available       = $this->parse_nullable_count( $_POST['mei_event_available_places'] ?? '', $available_valid );
+		$note            = mb_substr( sanitize_textarea_field( (string) wp_unslash( $_POST['mei_event_occupancy_note'] ?? '' ) ), 0, 500 );
+		if ( ! $capacity_valid || ! $available_valid || ( null !== $capacity && null !== $available && $available > $capacity ) ) {
+			$this->flag_occupancy_validation_error();
+			return;
+		}
+
+		$this->save_nullable_count_meta( $post_id, self::EVENT_CAPACITY, $capacity );
+		$this->save_nullable_count_meta( $post_id, self::EVENT_AVAILABLE, $available );
+		$this->save_nullable_text_meta( $post_id, self::EVENT_NOTE, $note );
+		$this->database->update_occupancy_by_event( $post_id, $capacity, $available, $note, get_current_user_id() );
 	}
 
 	public function register_admin_menu(): void {
@@ -268,6 +359,8 @@ final class Plugin {
 		<div class="mei-profile-grid">
 			<label><span><?php esc_html_e( 'All-day event', 'mlyn-event-intake' ); ?></span><input type="checkbox" name="mei_profile[default_all_day]" value="1" <?php checked( $settings['default_all_day'] ); ?>></label>
 			<label><span><?php esc_html_e( 'Fee amount', 'mlyn-event-intake' ); ?></span><input type="number" name="mei_profile[default_cost]" min="0" step="0.01" value="<?php echo esc_attr( $settings['default_cost'] ); ?>"><small><?php esc_html_e( 'Leave empty to hide the fee. Enter 0 for a free event.', 'mlyn-event-intake' ); ?></small></label>
+			<label><span><?php esc_html_e( 'Výchozí kapacita', 'mlyn-event-intake' ); ?></span><input type="number" name="mei_profile[default_capacity]" min="0" step="1" value="<?php echo esc_attr( $settings['default_capacity'] ); ?>"><small><?php esc_html_e( 'Použije se pouze při vytvoření nové akce. Prázdné pole kapacitu neuvede.', 'mlyn-event-intake' ); ?></small></label>
+			<label><span><?php esc_html_e( 'Výchozí počet volných míst', 'mlyn-event-intake' ); ?></span><input type="number" name="mei_profile[default_available_places]" min="0" step="1" value="<?php echo esc_attr( $settings['default_available_places'] ); ?>"><small><?php esc_html_e( 'Nula označí novou akci jako obsazenou i bez uvedené kapacity.', 'mlyn-event-intake' ); ?></small></label>
 			<?php $this->render_single_select( 'default_venue', __( 'Location', 'mlyn-event-intake' ), $venues, $settings['default_venue'] ); ?>
 			<?php $this->render_single_select( 'default_organizer', __( 'Organizer', 'mlyn-event-intake' ), $organizers, $settings['default_organizer'] ); ?>
 			<?php $this->render_multi_select( 'default_tags', __( 'Štítky', 'mlyn-event-intake' ), $tags, $settings['default_tags'] ); ?>
@@ -348,12 +441,25 @@ final class Plugin {
 
 		$raw      = isset( $_POST['mei_profile'] ) && is_array( $_POST['mei_profile'] ) ? wp_unslash( $_POST['mei_profile'] ) : array();
 		$settings = $this->sanitize_profile_settings( $raw );
+		$capacity_valid  = true;
+		$available_valid = true;
+		$capacity        = $this->parse_nullable_count( $raw['default_capacity'] ?? '', $capacity_valid );
+		$available       = $this->parse_nullable_count( $raw['default_available_places'] ?? '', $available_valid );
+		if ( ! $capacity_valid || ! $available_valid || ( null !== $capacity && null !== $available && $available > $capacity ) ) {
+			$existing                             = $this->get_profile_settings( $post_id );
+			$settings['default_capacity']          = $existing['default_capacity'];
+			$settings['default_available_places']  = $existing['default_available_places'];
+			$this->flag_occupancy_validation_error();
+		}
 		update_post_meta( $post_id, self::PROFILE_SETTINGS, $settings );
 	}
 
 	public function render_dependency_notice(): void {
 		if ( isset( $_GET['mei_user_conflict'] ) && current_user_can( self::CAP_PROFILES ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			echo '<div class="notice notice-error"><p>' . esc_html__( 'That WordPress user is already mapped to another organizer profile.', 'mlyn-event-intake' ) . '</p></div>';
+		}
+		if ( isset( $_GET['mei_occupancy_invalid'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'Obsazenost nebyla uložena. Zadejte nezáporná celá čísla; pokud jsou vyplněna obě pole, počet volných míst nesmí překročit kapacitu.', 'mlyn-event-intake' ) . '</p></div>';
 		}
 		if ( $this->sync->is_available() || ! current_user_can( 'activate_plugins' ) ) {
 			return;
@@ -418,7 +524,7 @@ final class Plugin {
 			<input type="hidden" name="action" value="mei_save_events"><input type="hidden" name="profile_id" value="<?php echo esc_attr( (string) $profile_id ); ?>"><input type="hidden" name="month" value="<?php echo esc_attr( $month ); ?>"><?php wp_nonce_field( 'mei_save_events_' . $profile_id . '_' . $month ); ?>
 			<div class="mei-table-scroll"><table class="widefat striped mei-event-table"><thead><tr>
 				<th class="mei-actions-column"><span class="screen-reader-text"><?php esc_html_e( 'Akce', 'mlyn-event-intake' ); ?></span></th>
-				<?php $this->render_sortable_heading( 'title', __( 'Název', 'mlyn-event-intake' ), true ); ?><th><?php esc_html_e( 'Text akce', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Krátký popis', 'mlyn-event-intake' ); ?></th><?php $this->render_sortable_heading( 'start', __( 'Začátek', 'mlyn-event-intake' ), true, true ); ?><?php $this->render_sortable_heading( 'end', __( 'Konec', 'mlyn-event-intake' ), true ); ?><th><?php esc_html_e( 'Celodenní', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Místo', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Pořadatel', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Web', 'mlyn-event-intake' ); ?></th><?php $this->render_sortable_heading( 'cost', __( 'Vstupné', 'mlyn-event-intake' ) ); ?><th><?php esc_html_e( 'Štítky', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Rubriky akce', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Obrázek', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Stav', 'mlyn-event-intake' ); ?></th>
+			<?php $this->render_sortable_heading( 'title', __( 'Název', 'mlyn-event-intake' ), true ); ?><th><?php esc_html_e( 'Text akce', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Krátký popis', 'mlyn-event-intake' ); ?></th><?php $this->render_sortable_heading( 'start', __( 'Začátek', 'mlyn-event-intake' ), true, true ); ?><?php $this->render_sortable_heading( 'end', __( 'Konec', 'mlyn-event-intake' ), true ); ?><th><?php esc_html_e( 'Celodenní', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Místo', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Pořadatel', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Web', 'mlyn-event-intake' ); ?></th><?php $this->render_sortable_heading( 'cost', __( 'Vstupné', 'mlyn-event-intake' ) ); ?><th><?php esc_html_e( 'Kapacita', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Volná místa', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Poznámka k obsazenosti', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Štítky', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Rubriky akce', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Obrázek', 'mlyn-event-intake' ); ?></th><th><?php esc_html_e( 'Stav', 'mlyn-event-intake' ); ?></th>
 			</tr></thead><tbody id="mei-event-rows"><?php foreach ( $rows as $index => $row ) { $this->render_event_row( (string) $index, $row, $allowed, $past_month || $row['end_at'] < current_time( 'mysql' ) ); } ?></tbody></table></div>
 			<?php if ( ! $past_month ) : ?><p class="mei-form-actions"><button type="button" class="button" id="mei-add-row"><?php esc_html_e( 'Přidat akci', 'mlyn-event-intake' ); ?></button> <?php submit_button( __( 'Uložit akce', 'mlyn-event-intake' ), 'primary', 'submit', false ); ?></p><?php endif; ?>
 		</form>
@@ -466,6 +572,9 @@ final class Plugin {
 			<td><?php $this->render_row_select( $index, 'organizer_id', $allowed['organizers'], (int) ( $row['organizer_id'] ?? 0 ), false, $readonly ); ?></td>
 			<td><input type="url" name="rows[<?php echo esc_attr( $index ); ?>][website]" value="<?php echo esc_attr( $row['website'] ?? '' ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>></td>
 			<td><input class="mei-cost" type="number" name="rows[<?php echo esc_attr( $index ); ?>][cost]" min="0" step="0.01" value="<?php echo esc_attr( $row['cost'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'Bez údaje', 'mlyn-event-intake' ); ?>" title="<?php esc_attr_e( 'Prázdné pole skryje vstupné, 0 znamená zdarma.', 'mlyn-event-intake' ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>></td>
+			<td><input type="number" name="rows[<?php echo esc_attr( $index ); ?>][capacity]" min="0" step="1" value="<?php echo esc_attr( $row['capacity'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'Bez údaje', 'mlyn-event-intake' ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>></td>
+			<td><input type="number" name="rows[<?php echo esc_attr( $index ); ?>][available_places]" min="0" step="1" value="<?php echo esc_attr( $row['available_places'] ?? '' ); ?>" placeholder="<?php esc_attr_e( 'Bez údaje', 'mlyn-event-intake' ); ?>" title="<?php esc_attr_e( 'Nula označí akci jako obsazenou i bez uvedené kapacity.', 'mlyn-event-intake' ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>></td>
+			<td><textarea name="rows[<?php echo esc_attr( $index ); ?>][occupancy_note]" rows="3" maxlength="500"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><?php echo esc_textarea( $row['occupancy_note'] ?? '' ); ?></textarea></td>
 			<td><?php $this->render_row_select( $index, 'tag_ids', $allowed['tags'], $row['tag_ids'] ?? array(), true, $readonly ); ?></td>
 			<td><?php $this->render_row_select( $index, 'category_ids', $allowed['categories'], $row['category_ids'] ?? array(), true, $readonly ); ?></td>
 			<td><input type="hidden" name="rows[<?php echo esc_attr( $index ); ?>][image_id]" value="<?php echo esc_attr( (string) ( $row['image_id'] ?? 0 ) ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><div class="mei-image-preview"><?php if ( $image_url ) : ?><img src="<?php echo esc_url( $image_url ); ?>" alt=""><?php endif; ?></div><input type="file" name="row_images[<?php echo esc_attr( $index ); ?>]" accept="image/jpeg,image/png,image/gif,image/webp"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><label><input type="checkbox" name="rows[<?php echo esc_attr( $index ); ?>][remove_image]" value="1"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>> <?php esc_html_e( 'Odstranit', 'mlyn-event-intake' ); ?></label></td>
@@ -563,6 +672,17 @@ final class Plugin {
 			if ( '' !== $cost && ( ! is_numeric( $cost ) || (float) $cost < 0 ) ) {
 				throw new RuntimeException( sprintf( __( 'Řádek %d: vstupné musí být prázdné, nula nebo kladné číslo.', 'mlyn-event-intake' ), $index + 1 ) );
 			}
+			$capacity_valid  = true;
+			$available_valid = true;
+			$capacity        = $this->parse_nullable_count( $raw['capacity'] ?? '', $capacity_valid );
+			$available       = $this->parse_nullable_count( $raw['available_places'] ?? '', $available_valid );
+			if ( ! $capacity_valid || ! $available_valid ) {
+				throw new RuntimeException( sprintf( __( 'Řádek %d: kapacita a volná místa musí být prázdná, nula nebo kladné celé číslo.', 'mlyn-event-intake' ), $index + 1 ) );
+			}
+			if ( null !== $capacity && null !== $available && $available > $capacity ) {
+				throw new RuntimeException( sprintf( __( 'Řádek %d: počet volných míst nesmí překročit kapacitu.', 'mlyn-event-intake' ), $index + 1 ) );
+			}
+			$occupancy_note = mb_substr( sanitize_textarea_field( (string) ( $raw['occupancy_note'] ?? '' ) ), 0, 500 );
 			$website = esc_url_raw( trim( (string) ( $raw['website'] ?? '' ) ) );
 			if ( ! empty( $raw['website'] ) && ! $website ) {
 				throw new RuntimeException( sprintf( __( 'Řádek %d: web musí být platná URL adresa.', 'mlyn-event-intake' ), $index + 1 ) );
@@ -588,6 +708,9 @@ final class Plugin {
 				'organizer_id' => $organizer_id,
 				'website'      => $website,
 				'cost'         => '' === $cost ? '' : $this->normalize_cost( $cost ),
+				'capacity'     => null === $capacity ? '' : (string) $capacity,
+				'available_places' => null === $available ? '' : (string) $available,
+				'occupancy_note' => $occupancy_note,
 				'tag_ids'      => $tag_ids,
 				'category_ids' => $category_ids,
 				'image_id'     => $image_id,
@@ -789,6 +912,9 @@ final class Plugin {
 					'organizer_id' => absint( $raw['organizer_id'] ?? 0 ),
 					'website'      => (string) ( $raw['website'] ?? '' ),
 					'cost'         => (string) ( $raw['cost'] ?? '' ),
+					'capacity'     => (string) ( $raw['capacity'] ?? '' ),
+					'available_places' => (string) ( $raw['available_places'] ?? '' ),
+					'occupancy_note' => (string) ( $raw['occupancy_note'] ?? '' ),
 					'tag_ids'      => array_map( 'absint', (array) ( $raw['tag_ids'] ?? array() ) ),
 					'category_ids' => array_map( 'absint', (array) ( $raw['category_ids'] ?? array() ) ),
 					'image_id'     => ! empty( $raw['remove_image'] ) ? 0 : absint( $raw['image_id'] ?? 0 ),
@@ -819,6 +945,8 @@ final class Plugin {
 		return array(
 			'default_all_day'  => false,
 			'default_cost'     => '',
+			'default_capacity' => '',
+			'default_available_places' => '',
 			'default_venue'    => 0,
 			'default_organizer'=> 0,
 			'default_tags'     => array(),
@@ -851,6 +979,12 @@ final class Plugin {
 		$settings['allowed_categories'] = array_values( array_unique( array_merge( $settings['allowed_categories'], $settings['default_categories'] ) ) );
 		$cost = str_replace( ',', '.', trim( (string) ( $raw['default_cost'] ?? '' ) ) );
 		$settings['default_cost']       = '' === $cost ? '' : ( is_numeric( $cost ) && (float) $cost >= 0 ? $this->normalize_cost( $cost ) : '' );
+		$capacity_valid                 = true;
+		$available_valid                = true;
+		$capacity                       = $this->parse_nullable_count( $raw['default_capacity'] ?? '', $capacity_valid );
+		$available                      = $this->parse_nullable_count( $raw['default_available_places'] ?? '', $available_valid );
+		$settings['default_capacity']   = $capacity_valid && null !== $capacity ? (string) $capacity : '';
+		$settings['default_available_places'] = $available_valid && null !== $available ? (string) $available : '';
 		$settings['default_all_day']    = ! empty( $raw['default_all_day'] );
 		$settings['currency_symbol']    = sanitize_text_field( $raw['currency_symbol'] ?? 'Kč' );
 		$settings['currency_position']  = in_array( $raw['currency_position'] ?? '', array( 'prefix', 'postfix' ), true ) ? $raw['currency_position'] : 'postfix';
@@ -911,6 +1045,9 @@ final class Plugin {
 			'organizer_id'  => $settings['default_organizer'],
 			'website'       => '',
 			'cost'          => $settings['default_cost'],
+			'capacity'      => $settings['default_capacity'],
+			'available_places' => $settings['default_available_places'],
+			'occupancy_note' => '',
 			'tag_ids'       => $settings['default_tags'],
 			'category_ids'  => $settings['default_categories'],
 			'image_id'      => 0,
@@ -939,6 +1076,49 @@ final class Plugin {
 	private function normalize_cost( string $cost ): string {
 		$normalized = number_format( (float) $cost, 2, '.', '' );
 		return rtrim( rtrim( $normalized, '0' ), '.' );
+	}
+
+	private function parse_nullable_count( $raw, bool &$valid ): ?int {
+		$value = trim( (string) $raw );
+		$valid = true;
+		if ( '' === $value ) {
+			return null;
+		}
+		if ( ! preg_match( '/^\d+$/', $value ) ) {
+			$valid = false;
+			return null;
+		}
+		$count = filter_var( $value, FILTER_VALIDATE_INT, array( 'options' => array( 'min_range' => 0 ) ) );
+		if ( false === $count ) {
+			$valid = false;
+			return null;
+		}
+		return (int) $count;
+	}
+
+	private function save_nullable_count_meta( int $post_id, string $meta_key, ?int $value ): void {
+		if ( null === $value ) {
+			delete_post_meta( $post_id, $meta_key );
+			return;
+		}
+		update_post_meta( $post_id, $meta_key, $value );
+	}
+
+	private function save_nullable_text_meta( int $post_id, string $meta_key, string $value ): void {
+		if ( '' === $value ) {
+			delete_post_meta( $post_id, $meta_key );
+			return;
+		}
+		update_post_meta( $post_id, $meta_key, $value );
+	}
+
+	private function flag_occupancy_validation_error(): void {
+		add_filter(
+			'redirect_post_location',
+			static function ( string $location ): string {
+				return add_query_arg( 'mei_occupancy_invalid', '1', $location );
+			}
+		);
 	}
 
 	private function get_global_settings(): array {
