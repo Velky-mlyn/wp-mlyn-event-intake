@@ -67,6 +67,7 @@ final class Plugin {
 		add_action( 'add_meta_boxes_' . self::PROFILE_TYPE, array( $this, 'register_profile_meta_boxes' ) );
 		add_action( 'save_post_' . self::PROFILE_TYPE, array( $this, 'save_profile' ), 10, 2 );
 		add_action( 'mlyn_event_occupancy_updated', array( $this, 'sync_event_occupancy_to_intake' ), 10, 2 );
+		add_action( 'mlyn_event_image_focal_point_updated', array( $this, 'sync_event_focal_point_to_intake' ), 10, 2 );
 		add_action( 'admin_notices', array( $this, 'render_dependency_notice' ) );
 		add_action( 'admin_post_mei_save_events', array( $this, 'save_events' ) );
 		add_action( 'admin_post_mei_import_events', array( $this, 'import_events' ) );
@@ -120,6 +121,15 @@ final class Plugin {
 			isset( $occupancy['capacity'] ) ? (int) $occupancy['capacity'] : null,
 			isset( $occupancy['available_places'] ) ? (int) $occupancy['available_places'] : null,
 			(string) ( $occupancy['note'] ?? '' ),
+			get_current_user_id()
+		);
+	}
+
+	public function sync_event_focal_point_to_intake( int $event_id, array $point ): void {
+		$this->database->update_focal_point_by_event(
+			$event_id,
+			! empty( $point['specified'] ) ? (int) $point['x'] : null,
+			! empty( $point['specified'] ) ? (int) $point['y'] : null,
 			get_current_user_id()
 		);
 	}
@@ -201,7 +211,8 @@ final class Plugin {
 			return;
 		}
 		wp_enqueue_editor();
-		wp_enqueue_script( 'mei-admin', plugins_url( 'assets/admin.js', MEI_FILE ), array(), MEI_VERSION, true );
+		wp_enqueue_style( 'wp-components' );
+		wp_enqueue_script( 'mei-admin', plugins_url( 'assets/admin.js', MEI_FILE ), array( 'wp-components', 'wp-element' ), MEI_VERSION, true );
 		wp_localize_script(
 			'mei-admin',
 			'meiAdmin',
@@ -209,6 +220,8 @@ final class Plugin {
 				'confirmRemove' => __( 'Opravdu chcete odstranit tento řádek? Propojená akce bude při příštím importu přesunuta do koše.', 'mlyn-event-intake' ),
 				'contentTitle'  => __( 'Text akce', 'mlyn-event-intake' ),
 				'untitled'      => __( 'Akce bez názvu', 'mlyn-event-intake' ),
+				'focalTitle'    => __( 'Výřez obrázku na detailu akce', 'mlyn-event-intake' ),
+				'focalHelp'     => __( 'Přesuňte bod na nejdůležitější část obrázku. Výřez se používá pouze v horním banneru detailu akce.', 'mlyn-event-intake' ),
 				'monthError'    => __( 'Řádek %1$d: začátek akce musí být v měsíci %2$s.', 'mlyn-event-intake' ),
 				'locale'        => str_replace( '_', '-', get_user_locale() ),
 				'sortAscending'   => __( 'Aktivovat pro vzestupné řazení.', 'mlyn-event-intake' ),
@@ -435,6 +448,7 @@ final class Plugin {
 			<?php $this->render_event_form( $profile_id, $month, $rows, $settings, $past_month ); ?>
 		</div>
 		<?php $this->render_content_modal(); ?>
+		<?php $this->render_focal_point_modal(); ?>
 		<?php
 	}
 
@@ -479,7 +493,8 @@ final class Plugin {
 		$start     = ! empty( $row['start_at'] ) ? ( $all_day ? substr( $row['start_at'], 0, 10 ) : str_replace( ' ', 'T', substr( $row['start_at'], 0, 16 ) ) ) : '';
 		$end       = ! empty( $row['end_at'] ) ? ( $all_day ? substr( $row['end_at'], 0, 10 ) : str_replace( ' ', 'T', substr( $row['end_at'], 0, 16 ) ) ) : '';
 		$disabled  = $readonly ? ' disabled' : '';
-		$image_url = ! empty( $row['image_id'] ) ? wp_get_attachment_image_url( (int) $row['image_id'], 'thumbnail' ) : '';
+		$image_url       = ! empty( $row['image_id'] ) ? wp_get_attachment_image_url( (int) $row['image_id'], 'thumbnail' ) : '';
+		$image_large_url = ! empty( $row['image_id'] ) ? wp_get_attachment_image_url( (int) $row['image_id'], 'large' ) : '';
 		?>
 		<tr class="mei-event-row<?php echo $readonly ? ' is-readonly' : ''; ?>" data-start="<?php echo esc_attr( $start ); ?>" data-end="<?php echo esc_attr( $end ); ?>" data-title="<?php echo esc_attr( $row['title'] ?? '' ); ?>" data-cost="<?php echo esc_attr( $row['cost'] ?? '' ); ?>">
 			<td><input type="hidden" name="rows[<?php echo esc_attr( $index ); ?>][uuid]" value="<?php echo esc_attr( $uuid ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><button type="button" class="button-link-delete mei-remove-row"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?> aria-label="<?php esc_attr_e( 'Odstranit akci', 'mlyn-event-intake' ); ?>" title="<?php esc_attr_e( 'Odstranit akci', 'mlyn-event-intake' ); ?>">×</button></td>
@@ -498,7 +513,7 @@ final class Plugin {
 			<td><textarea name="rows[<?php echo esc_attr( $index ); ?>][occupancy_note]" rows="3" maxlength="500"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><?php echo esc_textarea( $row['occupancy_note'] ?? '' ); ?></textarea></td>
 			<td><?php $this->render_row_select( $index, 'tag_ids', $allowed['tags'], $row['tag_ids'] ?? array(), true, $readonly ); ?></td>
 			<td><?php $this->render_row_select( $index, 'category_ids', $allowed['categories'], $row['category_ids'] ?? array(), true, $readonly ); ?></td>
-			<td><input type="hidden" name="rows[<?php echo esc_attr( $index ); ?>][image_id]" value="<?php echo esc_attr( (string) ( $row['image_id'] ?? 0 ) ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><div class="mei-image-preview"><?php if ( $image_url ) : ?><img src="<?php echo esc_url( $image_url ); ?>" alt=""><?php endif; ?></div><input type="file" name="row_images[<?php echo esc_attr( $index ); ?>]" accept="image/jpeg,image/png,image/gif,image/webp"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><label><input type="checkbox" name="rows[<?php echo esc_attr( $index ); ?>][remove_image]" value="1"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>> <?php esc_html_e( 'Odstranit', 'mlyn-event-intake' ); ?></label></td>
+			<td class="mei-image-cell"><input type="hidden" name="rows[<?php echo esc_attr( $index ); ?>][image_id]" value="<?php echo esc_attr( (string) ( $row['image_id'] ?? 0 ) ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><input type="hidden" class="mei-focal-x" name="rows[<?php echo esc_attr( $index ); ?>][focal_x]" value="<?php echo esc_attr( $row['focal_x'] ?? '' ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><input type="hidden" class="mei-focal-y" name="rows[<?php echo esc_attr( $index ); ?>][focal_y]" value="<?php echo esc_attr( $row['focal_y'] ?? '' ); ?>"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><div class="mei-image-preview" data-large-url="<?php echo esc_url( $image_large_url ?: $image_url ); ?>"><?php if ( $image_url ) : ?><img src="<?php echo esc_url( $image_url ); ?>" alt=""><?php endif; ?></div><input type="file" name="row_images[<?php echo esc_attr( $index ); ?>]" accept="image/jpeg,image/png,image/gif,image/webp"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><button type="button" class="button mei-edit-focal-point"<?php disabled( $readonly || ! $image_url ); ?>><?php esc_html_e( 'Nastavit výřez', 'mlyn-event-intake' ); ?></button><label><input class="mei-remove-image" type="checkbox" name="rows[<?php echo esc_attr( $index ); ?>][remove_image]" value="1"<?php echo $disabled; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>> <?php esc_html_e( 'Odstranit', 'mlyn-event-intake' ); ?></label></td>
 			<td class="mei-sync-status"><span class="mei-status mei-status-<?php echo esc_attr( $row['sync_status'] ?? 'new' ); ?>"><?php echo esc_html( $this->status_label( $row['sync_status'] ?? 'new' ) ); ?></span><?php if ( ! empty( $row['sync_error'] ) ) : ?><small><?php echo esc_html( $row['sync_error'] ); ?></small><?php endif; ?><?php if ( ! empty( $row['tec_event_id'] ) && current_user_can( self::CAP_IMPORT ) ) : ?><a href="<?php echo esc_url( get_edit_post_link( (int) $row['tec_event_id'] ) ); ?>"><?php esc_html_e( 'Otevřít akci', 'mlyn-event-intake' ); ?></a><?php endif; ?></td>
 		</tr>
 		<?php
@@ -513,6 +528,12 @@ final class Plugin {
 	private function render_content_modal(): void {
 		?>
 		<div id="mei-content-modal" class="mei-modal" hidden><div class="mei-modal-backdrop"></div><div class="mei-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="mei-modal-title"><h2 id="mei-modal-title"><?php esc_html_e( 'Text akce', 'mlyn-event-intake' ); ?></h2><?php wp_editor( '', 'mei_content_editor', array( 'textarea_rows' => 14, 'media_buttons' => false, 'teeny' => false ) ); ?><p><button type="button" class="button button-primary" id="mei-content-apply"><?php esc_html_e( 'Použít text', 'mlyn-event-intake' ); ?></button> <button type="button" class="button" id="mei-content-cancel"><?php esc_html_e( 'Zrušit', 'mlyn-event-intake' ); ?></button></p></div></div>
+		<?php
+	}
+
+	private function render_focal_point_modal(): void {
+		?>
+		<div id="mei-focal-modal" class="mei-modal" hidden><div class="mei-modal-backdrop"></div><div class="mei-modal-dialog mei-focal-dialog" role="dialog" aria-modal="true" aria-labelledby="mei-focal-title"><h2 id="mei-focal-title"><?php esc_html_e( 'Výřez obrázku na detailu akce', 'mlyn-event-intake' ); ?></h2><p><?php esc_html_e( 'Přesuňte bod na nejdůležitější část obrázku. Náhled odpovídá hornímu banneru na detailu akce.', 'mlyn-event-intake' ); ?></p><div id="mei-focal-picker-root"></div><h3><?php esc_html_e( 'Náhled banneru', 'mlyn-event-intake' ); ?></h3><div id="mei-focal-preview" class="mei-focal-preview" aria-hidden="true"></div><p><button type="button" class="button button-primary" id="mei-focal-apply"><?php esc_html_e( 'Použít výřez', 'mlyn-event-intake' ); ?></button> <button type="button" class="button" id="mei-focal-reset"><?php esc_html_e( 'Vycentrovat', 'mlyn-event-intake' ); ?></button> <button type="button" class="button" id="mei-focal-cancel"><?php esc_html_e( 'Zrušit', 'mlyn-event-intake' ); ?></button></p></div></div>
 		<?php
 	}
 
@@ -616,6 +637,16 @@ final class Plugin {
 			if ( $image_id && ! wp_attachment_is_image( $image_id ) ) {
 				throw new RuntimeException( sprintf( __( 'Řádek %d: vybraný soubor není obrázek.', 'mlyn-event-intake' ), $index + 1 ) );
 			}
+			$focal_valid = true;
+			$focal_x     = $this->parse_nullable_percentage( $raw['focal_x'] ?? '', $focal_valid );
+			$focal_y     = $this->parse_nullable_percentage( $raw['focal_y'] ?? '', $focal_valid );
+			if ( ! $focal_valid || ( null === $focal_x ) !== ( null === $focal_y ) ) {
+				throw new RuntimeException( sprintf( __( 'Řádek %d: bod výřezu obrázku není platný.', 'mlyn-event-intake' ), $index + 1 ) );
+			}
+			if ( ! $image_id && ! $this->has_row_image_upload( $file_index ) ) {
+				$focal_x = null;
+				$focal_y = null;
+			}
 
 			$result[] = array(
 				'uuid'         => $uuid,
@@ -635,6 +666,8 @@ final class Plugin {
 				'tag_ids'      => $tag_ids,
 				'category_ids' => $category_ids,
 				'image_id'     => $image_id,
+				'focal_x'      => null === $focal_x ? '' : (string) $focal_x,
+				'focal_y'      => null === $focal_y ? '' : (string) $focal_y,
 				'_file_index'  => $file_index,
 				'_row_index'   => $index,
 			);
@@ -652,6 +685,10 @@ final class Plugin {
 					$row['image_id'] = $uploaded;
 					$uploaded_ids[]  = $uploaded;
 				}
+				if ( ! $row['image_id'] ) {
+					$row['focal_x'] = '';
+					$row['focal_y'] = '';
+				}
 				unset( $row['_file_index'], $row['_row_index'] );
 			}
 			unset( $row );
@@ -662,6 +699,11 @@ final class Plugin {
 			throw $exception;
 		}
 		return $result;
+	}
+
+	private function has_row_image_upload( $file_index ): bool {
+		return isset( $_FILES['row_images']['error'][ $file_index ] )
+			&& UPLOAD_ERR_NO_FILE !== (int) $_FILES['row_images']['error'][ $file_index ];
 	}
 
 	private function handle_row_image( $file_index, int $display_index ): int {
@@ -839,6 +881,8 @@ final class Plugin {
 					'tag_ids'      => array_map( 'absint', (array) ( $raw['tag_ids'] ?? array() ) ),
 					'category_ids' => array_map( 'absint', (array) ( $raw['category_ids'] ?? array() ) ),
 					'image_id'     => ! empty( $raw['remove_image'] ) ? 0 : absint( $raw['image_id'] ?? 0 ),
+					'focal_x'      => ! empty( $raw['remove_image'] ) ? '' : (string) ( $raw['focal_x'] ?? '' ),
+					'focal_y'      => ! empty( $raw['remove_image'] ) ? '' : (string) ( $raw['focal_y'] ?? '' ),
 				)
 			);
 		}
@@ -972,6 +1016,8 @@ final class Plugin {
 			'tag_ids'       => $settings['default_tags'],
 			'category_ids'  => $settings['default_categories'],
 			'image_id'      => 0,
+			'focal_x'       => '',
+			'focal_y'       => '',
 			'sync_status'   => 'new',
 			'sync_error'    => '',
 			'tec_event_id'  => 0,
@@ -1015,6 +1061,18 @@ final class Plugin {
 			return null;
 		}
 		return (int) $count;
+	}
+
+	private function parse_nullable_percentage( $raw, bool &$valid ): ?int {
+		$value = trim( (string) $raw );
+		if ( '' === $value ) {
+			return null;
+		}
+		if ( ! preg_match( '/^\d{1,3}$/', $value ) || (int) $value > 100 ) {
+			$valid = false;
+			return null;
+		}
+		return (int) $value;
 	}
 
 	private function flag_occupancy_validation_error(): void {

@@ -65,6 +65,8 @@ try {
 				'tag_ids'      => array(),
 				'category_ids' => array(),
 				'image_id'     => 0,
+				'focal_x'      => '25',
+				'focal_y'      => '15',
 			),
 		),
 		MINUTE_IN_SECONDS
@@ -72,7 +74,7 @@ try {
 	ob_start();
 	MEI\Plugin::instance()->render_events_page();
 	$html = ob_get_clean();
-	foreach ( array( 'MEI disposable UI profile', 'Poslední úprava:', 'Rubriky akce', 'Importovat všechny změněné aktivní akce', 'mei-row-template', 'Recovered unsaved row', '>Architektura<', '>Knihovna<', 'placeholder="Bez údaje"', 'data-sort="start" aria-sort="ascending"', 'class="mei-sort-indicator"', 'class="screen-reader-text mei-sort-status"', 'title="Odstranit akci"', '>Kapacita<', '>Volná místa<', '>Poznámka k obsazenosti<', 'ZŠ Bohumila Hrabala' ) as $expected ) {
+	foreach ( array( 'MEI disposable UI profile', 'Poslední úprava:', 'Rubriky akce', 'Importovat všechny změněné aktivní akce', 'mei-row-template', 'Recovered unsaved row', '>Architektura<', '>Knihovna<', 'placeholder="Bez údaje"', 'data-sort="start" aria-sort="ascending"', 'class="mei-sort-indicator"', 'class="screen-reader-text mei-sort-status"', 'title="Odstranit akci"', '>Kapacita<', '>Volná místa<', '>Poznámka k obsazenosti<', 'ZŠ Bohumila Hrabala', 'class="mei-focal-x"', 'value="25"', 'id="mei-focal-modal"', 'id="mei-focal-picker-root"', '>Nastavit výřez<' ) as $expected ) {
 		if ( false === strpos( $html, $expected ) ) {
 			throw new RuntimeException( 'Admin page output is missing: ' . $expected );
 		}

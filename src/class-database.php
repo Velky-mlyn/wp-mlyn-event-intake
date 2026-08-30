@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Database {
-	private const VERSION = '2';
+	private const VERSION = '3';
 	private $table;
 
 	public function __construct() {
@@ -45,6 +45,8 @@ final class Database {
 			tag_ids longtext NOT NULL,
 			category_ids longtext NOT NULL,
 			image_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			focal_x tinyint(3) unsigned NULL DEFAULT NULL,
+			focal_y tinyint(3) unsigned NULL DEFAULT NULL,
 			tec_event_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			sync_hash char(64) NOT NULL DEFAULT '',
 			sync_status varchar(20) NOT NULL DEFAULT 'changed',
@@ -65,6 +67,9 @@ final class Database {
 		dbDelta( $sql );
 		if ( version_compare( $previous_version, '2', '<' ) ) {
 			self::backfill_occupancy( $table );
+		}
+		if ( version_compare( $previous_version, '3', '<' ) ) {
+			self::backfill_focal_points( $table );
 		}
 		update_option( 'mei_db_version', self::VERSION, false );
 	}
@@ -92,6 +97,25 @@ final class Database {
 			}
 			if ( $values ) {
 				$wpdb->update( $table, $values, array( 'id' => (int) $row['id'] ) );
+			}
+		}
+	}
+
+	private static function backfill_focal_points( string $table ): void {
+		global $wpdb;
+		$rows = $wpdb->get_results( "SELECT id, tec_event_id FROM {$table} WHERE tec_event_id > 0", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		foreach ( $rows as $row ) {
+			$event_id = (int) $row['tec_event_id'];
+			if ( ! function_exists( 'mlyn_event_get_image_focal_point' ) ) {
+				continue;
+			}
+			$point = mlyn_event_get_image_focal_point( $event_id );
+			if ( ! empty( $point['specified'] ) ) {
+				$wpdb->update(
+					$table,
+					array( 'focal_x' => (int) $point['x'], 'focal_y' => (int) $point['y'] ),
+					array( 'id' => (int) $row['id'] )
+				);
 			}
 		}
 	}
@@ -239,6 +263,25 @@ final class Database {
 		);
 	}
 
+	public function update_focal_point_by_event( int $event_id, ?int $x, ?int $y, int $user_id ): void {
+		global $wpdb;
+		$wpdb->update(
+			$this->table,
+			array(
+				'focal_x'    => $x,
+				'focal_y'    => $y,
+				'updated_by' => $user_id,
+				'updated_at' => current_time( 'mysql' ),
+				'sync_status' => 'changed',
+				'sync_error' => '',
+			),
+			array(
+				'tec_event_id' => $event_id,
+				'deleted_at'   => null,
+			)
+		);
+	}
+
 	private function to_record( array $row, int $profile_id, string $month, int $user_id, string $now ): array {
 		return array(
 			'profile_id'    => $profile_id,
@@ -259,6 +302,8 @@ final class Database {
 			'tag_ids'       => wp_json_encode( array_values( $row['tag_ids'] ) ),
 			'category_ids'  => wp_json_encode( array_values( $row['category_ids'] ) ),
 			'image_id'      => $row['image_id'],
+			'focal_x'       => '' === (string) ( $row['focal_x'] ?? '' ) ? null : (int) $row['focal_x'],
+			'focal_y'       => '' === (string) ( $row['focal_y'] ?? '' ) ? null : (int) $row['focal_y'],
 			'updated_by'    => $user_id,
 			'updated_at'    => $now,
 			'deleted_at'    => null,
@@ -266,7 +311,7 @@ final class Database {
 	}
 
 	private function editable_hash( array $row ): string {
-		$keys = array( 'title', 'content', 'excerpt', 'start_at', 'end_at', 'all_day', 'venue_id', 'organizer_id', 'website', 'cost', 'capacity', 'available_places', 'occupancy_note', 'tag_ids', 'category_ids', 'image_id' );
+		$keys = array( 'title', 'content', 'excerpt', 'start_at', 'end_at', 'all_day', 'venue_id', 'organizer_id', 'website', 'cost', 'capacity', 'available_places', 'occupancy_note', 'tag_ids', 'category_ids', 'image_id', 'focal_x', 'focal_y' );
 		$data = array();
 		foreach ( $keys as $key ) {
 			$data[ $key ] = $row[ $key ] ?? null;
@@ -282,6 +327,8 @@ final class Database {
 		$data['venue_id']     = (int) $data['venue_id'];
 		$data['organizer_id'] = (int) $data['organizer_id'];
 		$data['image_id']     = (int) $data['image_id'];
+		$data['focal_x']      = null === $data['focal_x'] || '' === $data['focal_x'] ? '' : (string) (int) $data['focal_x'];
+		$data['focal_y']      = null === $data['focal_y'] || '' === $data['focal_y'] ? '' : (string) (int) $data['focal_y'];
 		$data['cost']         = (string) $data['cost'];
 		$data['capacity']     = null === $data['capacity'] || '' === $data['capacity'] ? '' : (string) (int) $data['capacity'];
 		$data['available_places'] = null === $data['available_places'] || '' === $data['available_places'] ? '' : (string) (int) $data['available_places'];
@@ -296,6 +343,8 @@ final class Database {
 		$row['venue_id']       = (int) $row['venue_id'];
 		$row['organizer_id']   = (int) $row['organizer_id'];
 		$row['image_id']       = (int) $row['image_id'];
+		$row['focal_x']        = null === $row['focal_x'] ? '' : (string) (int) $row['focal_x'];
+		$row['focal_y']        = null === $row['focal_y'] ? '' : (string) (int) $row['focal_y'];
 		$row['tec_event_id']   = (int) $row['tec_event_id'];
 		$row['capacity']       = null === $row['capacity'] ? '' : (string) (int) $row['capacity'];
 		$row['available_places'] = null === $row['available_places'] ? '' : (string) (int) $row['available_places'];

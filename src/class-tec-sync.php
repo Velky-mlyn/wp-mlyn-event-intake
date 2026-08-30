@@ -19,7 +19,7 @@ final class TEC_Sync {
 	}
 
 	public function is_available(): bool {
-		return function_exists( 'tribe_events' ) && post_type_exists( 'tribe_events' ) && function_exists( 'mlyn_event_set_occupancy' );
+		return function_exists( 'tribe_events' ) && post_type_exists( 'tribe_events' ) && function_exists( 'mlyn_event_set_occupancy' ) && function_exists( 'mlyn_event_set_image_focal_point' );
 	}
 
 	public function import_profile( int $profile_id, array $settings ): array {
@@ -64,7 +64,7 @@ final class TEC_Sync {
 					'sha256',
 					wp_json_encode(
 						array(
-							'sync_revision'  => 3,
+							'sync_revision'  => 4,
 							'event'         => $args,
 							'currency_code' => $settings['currency_code'],
 							'event_status'  => $settings['event_status'],
@@ -72,6 +72,10 @@ final class TEC_Sync {
 								'capacity'         => $row['capacity'],
 								'available_places' => $row['available_places'],
 								'note'             => $row['occupancy_note'],
+							),
+							'focal_point'   => array(
+								'x' => $row['focal_x'],
+								'y' => $row['focal_y'],
 							),
 						)
 					)
@@ -181,6 +185,13 @@ final class TEC_Sync {
 		$capacity  = '' === (string) $row['capacity'] ? null : (int) $row['capacity'];
 		$available = '' === (string) $row['available_places'] ? null : (int) $row['available_places'];
 		$result    = mlyn_event_set_occupancy( $event_id, $capacity, $available, (string) $row['occupancy_note'], false );
+		if ( is_wp_error( $result ) ) {
+			throw new RuntimeException( $result->get_error_message() );
+		}
+
+		$focal_x = '' === (string) $row['focal_x'] ? null : (int) $row['focal_x'];
+		$focal_y = '' === (string) $row['focal_y'] ? null : (int) $row['focal_y'];
+		$result  = mlyn_event_set_image_focal_point( $event_id, $focal_x, $focal_y, false );
 		if ( is_wp_error( $result ) ) {
 			throw new RuntimeException( $result->get_error_message() );
 		}

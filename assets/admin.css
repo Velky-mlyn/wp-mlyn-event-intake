@@ -29,6 +29,7 @@
 .mei-content-excerpt { display: block; margin-top: 6px; color: #50575e; font-size: 12px; }
 .mei-image-preview { width: 90px; min-height: 40px; margin-bottom: 5px; }
 .mei-image-preview img { display: block; max-width: 90px; max-height: 75px; object-fit: contain; }
+.mei-image-cell .mei-edit-focal-point { display: block; margin: 6px 0; }
 .mei-sync-status small, .mei-sync-status a { display: block; margin-top: 5px; }
 .mei-status { display: inline-block; border-radius: 10px; padding: 2px 7px; background: #dcdcde; }
 .mei-status-synced { background: #d7f0df; color: #005c12; }
@@ -41,6 +42,10 @@
 .mei-modal { position: fixed; inset: 0; z-index: 100100; display: grid; place-items: center; padding: 25px; }
 .mei-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.62); }
 .mei-modal-dialog { position: relative; width: min(850px, 94vw); max-height: 90vh; overflow: auto; padding: 20px; background: #fff; box-shadow: 0 8px 40px rgba(0,0,0,.35); }
+.mei-focal-dialog { width: min(700px, 94vw); }
+#mei-focal-picker-root { max-width: 620px; }
+#mei-focal-picker-root .components-focal-point-picker-wrapper { width: 100%; }
+.mei-focal-preview { width: 100%; aspect-ratio: 16 / 5; background-color: #dcdcde; background-repeat: no-repeat; background-size: cover; border: 1px solid #c3c4c7; }
 .mei-modal-open { overflow: hidden; }
 .mei-profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
 .mei-profile-grid label > span { display: block; margin-bottom: 5px; font-weight: 600; }

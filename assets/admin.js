@@ -6,9 +6,85 @@
 	const template = document.getElementById('mei-row-template');
 	const form = document.querySelector('.mei-events-form');
 	const modal = document.getElementById('mei-content-modal');
+	const focalModal = document.getElementById('mei-focal-modal');
+	const focalPreview = document.getElementById('mei-focal-preview');
 	const monthSelect = document.getElementById('mei-month-select');
 	let activeContent = null;
+	let activeFocalRow = null;
+	let focalPoint = { x: 0.5, y: 0.5 };
+	let setFocalPicker = null;
 	let dirty = false;
+
+	function updateBodyModalState() {
+		const open = (modal && !modal.hidden) || (focalModal && !focalModal.hidden);
+		document.body.classList.toggle('mei-modal-open', Boolean(open));
+	}
+
+	function updateFocalPreview(imageUrl, point) {
+		if (!focalPreview) return;
+		focalPreview.style.backgroundImage = imageUrl ? 'url("' + imageUrl.replace(/"/g, '%22') + '")' : '';
+		focalPreview.style.backgroundPosition = Math.round(point.x * 100) + '% ' + Math.round(point.y * 100) + '%';
+	}
+
+	function mountFocalPicker() {
+		const root = document.getElementById('mei-focal-picker-root');
+		if (!root || !window.wp || !wp.element || !wp.components || !wp.components.FocalPointPicker) return;
+		const createElement = wp.element.createElement;
+		function Picker() {
+			const imageState = wp.element.useState('');
+			const pointState = wp.element.useState(focalPoint);
+			setFocalPicker = function (imageUrl, point) {
+				imageState[1](imageUrl);
+				pointState[1](point);
+			};
+			return createElement(wp.components.FocalPointPicker, {
+				url: imageState[0],
+				value: pointState[0],
+				onChange: function (point) {
+					focalPoint = point;
+					pointState[1](point);
+					updateFocalPreview(imageState[0], point);
+				},
+				onDrag: function (point) {
+					focalPoint = point;
+					pointState[1](point);
+					updateFocalPreview(imageState[0], point);
+				}
+			});
+		}
+		if (typeof wp.element.createRoot === 'function') wp.element.createRoot(root).render(createElement(Picker));
+		else wp.element.render(createElement(Picker), root);
+	}
+
+	function openFocal(row) {
+		const preview = row.querySelector('.mei-image-preview');
+		const image = preview && preview.querySelector('img');
+		const imageUrl = preview ? (preview.dataset.largeUrl || (image ? image.src : '')) : '';
+		if (!imageUrl || !focalModal) return;
+		const x = parseInt(row.querySelector('.mei-focal-x').value, 10);
+		const y = parseInt(row.querySelector('.mei-focal-y').value, 10);
+		focalPoint = {
+			x: Number.isFinite(x) ? x / 100 : 0.5,
+			y: Number.isFinite(y) ? y / 100 : 0.5
+		};
+		activeFocalRow = row;
+		focalModal.dataset.imageUrl = imageUrl;
+		focalModal.hidden = false;
+		if (setFocalPicker) setFocalPicker(imageUrl, focalPoint);
+		updateFocalPreview(imageUrl, focalPoint);
+		updateBodyModalState();
+	}
+
+	function closeFocal(apply) {
+		if (apply && activeFocalRow) {
+			activeFocalRow.querySelector('.mei-focal-x').value = String(Math.round(focalPoint.x * 100));
+			activeFocalRow.querySelector('.mei-focal-y').value = String(Math.round(focalPoint.y * 100));
+			dirty = true;
+		}
+		activeFocalRow = null;
+		focalModal.hidden = true;
+		updateBodyModalState();
+	}
 
 	function uuid() {
 		if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
@@ -40,7 +116,7 @@
 		activeContent = row.querySelector('.mei-content');
 		editorValue(activeContent.value);
 		modal.hidden = false;
-		document.body.classList.add('mei-modal-open');
+		updateBodyModalState();
 		setTimeout(function () {
 			const editor = window.tinymce && window.tinymce.get('mei_content_editor');
 			if (editor) editor.focus();
@@ -55,7 +131,7 @@
 		}
 		activeContent = null;
 		modal.hidden = true;
-		document.body.classList.remove('mei-modal-open');
+		updateBodyModalState();
 	}
 
 	function toggleAllDay(row, checked) {
@@ -121,6 +197,7 @@
 				return;
 			}
 			if (event.target.closest('.mei-edit-content')) openContent(row);
+			if (event.target.closest('.mei-edit-focal-point')) openFocal(row);
 		});
 
 		rows.addEventListener('change', function (event) {
@@ -130,9 +207,31 @@
 			if (event.target.matches('input[type="file"]') && event.target.files && event.target.files[0]) {
 				const preview = row.querySelector('.mei-image-preview');
 				const image = document.createElement('img');
-				image.src = URL.createObjectURL(event.target.files[0]);
+				const imageUrl = URL.createObjectURL(event.target.files[0]);
+				image.src = imageUrl;
 				image.alt = '';
 				preview.replaceChildren(image);
+				preview.dataset.largeUrl = imageUrl;
+				row.querySelector('.mei-focal-x').value = '50';
+				row.querySelector('.mei-focal-y').value = '50';
+				row.querySelector('.mei-edit-focal-point').disabled = false;
+				row.querySelector('.mei-remove-image').checked = false;
+			}
+			if (event.target.matches('.mei-remove-image')) {
+				const button = row.querySelector('.mei-edit-focal-point');
+				const xField = row.querySelector('.mei-focal-x');
+				const yField = row.querySelector('.mei-focal-y');
+				if (event.target.checked) {
+					row.dataset.previousFocalX = xField.value;
+					row.dataset.previousFocalY = yField.value;
+					xField.value = '';
+					yField.value = '';
+					button.disabled = true;
+				} else {
+					xField.value = row.dataset.previousFocalX || '';
+					yField.value = row.dataset.previousFocalY || '';
+					button.disabled = !row.querySelector('.mei-image-preview img');
+				}
 			}
 			updateSortData(row);
 			dirty = true;
@@ -148,6 +247,7 @@
 
 	if (addButton && template) addButton.addEventListener('click', addRow);
 	if (monthSelect) monthSelect.addEventListener('change', function () { window.location.href = this.value; });
+	mountFocalPicker();
 
 	const sortHeadings = Array.from(document.querySelectorAll('.mei-event-table th[data-sort]'));
 
@@ -192,6 +292,18 @@
 		document.getElementById('mei-content-cancel').addEventListener('click', function () { closeContent(false); });
 		modal.querySelector('.mei-modal-backdrop').addEventListener('click', function () { closeContent(false); });
 		document.addEventListener('keydown', function (event) { if (!modal.hidden && event.key === 'Escape') closeContent(false); });
+	}
+
+	if (focalModal) {
+		document.getElementById('mei-focal-apply').addEventListener('click', function () { closeFocal(true); });
+		document.getElementById('mei-focal-cancel').addEventListener('click', function () { closeFocal(false); });
+		document.getElementById('mei-focal-reset').addEventListener('click', function () {
+			focalPoint = { x: 0.5, y: 0.5 };
+			if (setFocalPicker) setFocalPicker(focalModal.dataset.imageUrl || '', focalPoint);
+			updateFocalPreview(focalModal.dataset.imageUrl || '', focalPoint);
+		});
+		focalModal.querySelector('.mei-modal-backdrop').addEventListener('click', function () { closeFocal(false); });
+		document.addEventListener('keydown', function (event) { if (!focalModal.hidden && event.key === 'Escape') closeFocal(false); });
 	}
 
 	if (form) {

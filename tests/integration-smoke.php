@@ -22,7 +22,7 @@ try {
 	$assert( $sync->is_available(), 'The Events Calendar adapter is unavailable.' );
 	$assert( function_exists( 'mlyn_event_set_occupancy' ), 'The Mlýn Event integration is unavailable.' );
 	$columns = $wpdb->get_col( "SHOW COLUMNS FROM {$wpdb->prefix}mei_event_rows", 0 ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-	foreach ( array( 'capacity', 'available_places', 'occupancy_note' ) as $column ) {
+	foreach ( array( 'capacity', 'available_places', 'occupancy_note', 'focal_x', 'focal_y' ) as $column ) {
 		$assert( in_array( $column, $columns, true ), 'The intake occupancy database migration is incomplete.' );
 	}
 	$admins = get_users( array( 'role' => 'administrator', 'number' => 1, 'fields' => 'ids' ) );
@@ -45,6 +45,8 @@ try {
 	$organizer_id = (int) get_posts( array( 'post_type' => 'tribe_organizer', 'post_status' => 'publish', 'posts_per_page' => 1, 'fields' => 'ids' ) )[0];
 	$tag_ids      = get_terms( array( 'taxonomy' => 'post_tag', 'hide_empty' => false, 'number' => 1, 'fields' => 'ids' ) );
 	$category_ids = get_terms( array( 'taxonomy' => 'tribe_events_cat', 'hide_empty' => false, 'number' => 1, 'fields' => 'ids' ) );
+	$image_ids     = get_posts( array( 'post_type' => 'attachment', 'post_mime_type' => 'image', 'post_status' => 'inherit', 'posts_per_page' => 1, 'fields' => 'ids' ) );
+	$assert( ! empty( $image_ids ), 'No image attachment is available for the focal-point test.' );
 	$settings     = array(
 		'currency_symbol'     => 'Kč',
 		'currency_position'   => 'postfix',
@@ -77,7 +79,9 @@ try {
 		'occupancy_note' => 'ZŠ Zenklova',
 		'tag_ids'      => array_map( 'intval', (array) $tag_ids ),
 		'category_ids' => array_map( 'intval', (array) $category_ids ),
-		'image_id'     => 0,
+		'image_id'     => (int) $image_ids[0],
+		'focal_x'      => '22',
+		'focal_y'      => '14',
 	);
 
 	$assert( 1 === $database->save_month( $profile_id, $month, array( $row ), 1 ), 'Initial intake save did not change one row.' );
@@ -95,6 +99,8 @@ try {
 	$assert( ! metadata_exists( 'post', $event_id, '_mlyn_event_capacity' ), 'A blank default capacity unexpectedly created metadata.' );
 	$assert( metadata_exists( 'post', $event_id, '_mlyn_event_available_places' ) && '0' === get_post_meta( $event_id, '_mlyn_event_available_places', true ), 'Zero available places were not preserved without capacity.' );
 	$assert( 'ZŠ Zenklova' === get_post_meta( $event_id, '_mlyn_event_occupancy_note', true ), 'The occupancy note was not imported.' );
+	$point = mlyn_event_get_image_focal_point( $event_id );
+	$assert( true === $point['specified'] && 22 === $point['x'] && 14 === $point['y'], 'The image focal point was not imported.' );
 	$assert( $venue_id === (int) get_post_meta( $event_id, '_EventVenueID', true ), 'The imported venue is wrong.' );
 	$assert( in_array( $organizer_id, array_map( 'intval', get_post_meta( $event_id, '_EventOrganizerID', false ) ), true ), 'The imported organizer is wrong.' );
 	$assert( array_map( 'intval', (array) $tag_ids ) === wp_get_object_terms( $event_id, 'post_tag', array( 'fields' => 'ids' ) ), 'The imported tags are wrong.' );
@@ -105,9 +111,15 @@ try {
 	$assert( true === $occupancy_update, 'The Mlýn Event occupancy update failed.' );
 	$saved = $database->get_month_rows( $profile_id, $month );
 	$assert( '30' === $saved[0]['capacity'] && '5' === $saved[0]['available_places'] && 'ZŠ Bohumila Hrabala' === $saved[0]['occupancy_note'], 'An event-editor occupancy change did not update its linked intake row.' );
+	$focal_update = mlyn_event_set_image_focal_point( $event_id, 31, 12 );
+	$assert( true === $focal_update, 'The Mlýn Event focal-point update failed.' );
+	$saved = $database->get_month_rows( $profile_id, $month );
+	$assert( '31' === $saved[0]['focal_x'] && '12' === $saved[0]['focal_y'], 'An event-editor focal-point change did not update its linked intake row.' );
 	$row['capacity']         = '30';
 	$row['available_places'] = '5';
 	$row['occupancy_note']   = 'ZŠ Bohumila Hrabala';
+	$row['focal_x']          = '31';
+	$row['focal_y']          = '12';
 	$row['title']    = 'MEI disposable event updated';
 	$row['content']  = '<p>Updated content.</p>';
 	$row['all_day']  = true;
@@ -120,6 +132,8 @@ try {
 	$assert( 'publish' === get_post_status( $event_id ), 'An update did not preserve the event publication status.' );
 	$assert( 'yes' === get_post_meta( $event_id, '_EventAllDay', true ), 'The updated event is not a multi-day all-day event.' );
 	$assert( '30' === get_post_meta( $event_id, '_mlyn_event_capacity', true ) && '5' === get_post_meta( $event_id, '_mlyn_event_available_places', true ) && 'ZŠ Bohumila Hrabala' === get_post_meta( $event_id, '_mlyn_event_occupancy_note', true ), 'A re-import did not preserve synchronized occupancy.' );
+	$point = mlyn_event_get_image_focal_point( $event_id );
+	$assert( true === $point['specified'] && 31 === $point['x'] && 12 === $point['y'], 'A re-import did not preserve the synchronized focal point.' );
 
 	$settings['event_status'] = 'canceled';
 	$settings['featured']     = false;

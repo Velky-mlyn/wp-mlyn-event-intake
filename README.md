@@ -19,12 +19,20 @@ Fee values distinguish three states: empty stores no fee and hides the fee row i
 
 Event occupancy uses three independent values supplied by the required **Mlýn Event** plugin: optional total capacity, optional available places, and an optional note. Empty numeric values are not tracked, while zero available places marks an event as fully occupied even when total capacity is unknown. Organizer-profile defaults seed new intake rows. Organizers and administrators can override all three values in the intake table, and administrators can also edit them on the linked event; either editing route updates the intake source of truth.
 
+Each row with a featured image also offers a native focal-point picker and a live event-detail banner preview. The selected point is used only for the detail-page crop, follows the image through imports, and stays synchronized when an administrator changes it on the linked event.
+
 The **Název**, **Začátek**, **Konec**, and **Vstupné** headers sort the
 currently displayed rows in the browser. An arrow identifies the active sort
 column and direction. The initial order is **Začátek** ascending, matching the
 database query; sorting is not persisted after leaving the page.
 
 ## Changelog
+
+### 0.6.0
+
+- Added a featured-image focal-point picker and detail-banner preview to intake rows.
+- Synchronized focal points bidirectionally with linked events through Mlýn Event.
+- Added a versioned database migration for focal-point coordinates.
 
 ### 0.5.0
 
