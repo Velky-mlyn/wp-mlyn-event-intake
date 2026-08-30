@@ -20,6 +20,7 @@ $event_id   = 0;
 
 try {
 	$assert( $sync->is_available(), 'The Events Calendar adapter is unavailable.' );
+	$assert( function_exists( 'mlyn_event_set_occupancy' ), 'The Mlýn Event integration is unavailable.' );
 	$columns = $wpdb->get_col( "SHOW COLUMNS FROM {$wpdb->prefix}mei_event_rows", 0 ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	foreach ( array( 'capacity', 'available_places', 'occupancy_note' ) as $column ) {
 		$assert( in_array( $column, $columns, true ), 'The intake occupancy database migration is incomplete.' );
@@ -100,12 +101,8 @@ try {
 	$assert( array_map( 'intval', (array) $category_ids ) === wp_get_object_terms( $event_id, 'tribe_events_cat', array( 'fields' => 'ids' ) ), 'The imported categories are wrong.' );
 
 	wp_update_post( array( 'ID' => $event_id, 'post_status' => 'publish' ) );
-	$_POST['mei_event_occupancy_nonce']  = wp_create_nonce( 'mei_save_event_occupancy_' . $event_id );
-	$_POST['mei_event_capacity']         = '30';
-	$_POST['mei_event_available_places'] = '5';
-	$_POST['mei_event_occupancy_note']   = 'ZŠ Bohumila Hrabala';
-	MEI\Plugin::instance()->save_event_occupancy( $event_id, get_post( $event_id ) );
-	unset( $_POST['mei_event_occupancy_nonce'], $_POST['mei_event_capacity'], $_POST['mei_event_available_places'], $_POST['mei_event_occupancy_note'] );
+	$occupancy_update = mlyn_event_set_occupancy( $event_id, 30, 5, 'ZŠ Bohumila Hrabala' );
+	$assert( true === $occupancy_update, 'The Mlýn Event occupancy update failed.' );
 	$saved = $database->get_month_rows( $profile_id, $month );
 	$assert( '30' === $saved[0]['capacity'] && '5' === $saved[0]['available_places'] && 'ZŠ Bohumila Hrabala' === $saved[0]['occupancy_note'], 'An event-editor occupancy change did not update its linked intake row.' );
 	$row['capacity']         = '30';

@@ -31,35 +31,11 @@ $profile_id = wp_insert_post(
 	),
 	true
 );
-$event_id = wp_insert_post(
-	array(
-		'post_type'   => 'tribe_events',
-		'post_status' => 'draft',
-		'post_title'  => 'MEI disposable occupancy event',
-	),
-	true
-);
-
-if ( is_wp_error( $profile_id ) || is_wp_error( $event_id ) ) {
-	throw new RuntimeException( is_wp_error( $profile_id ) ? $profile_id->get_error_message() : $event_id->get_error_message() );
+if ( is_wp_error( $profile_id ) ) {
+	throw new RuntimeException( $profile_id->get_error_message() );
 }
 
 try {
-	ob_start();
-	MEI\Plugin::instance()->render_event_occupancy_meta_box( get_post( $event_id ) );
-	$occupancy_html = ob_get_clean();
-	if ( false === strpos( $occupancy_html, 'Kapacita' ) || false === strpos( $occupancy_html, 'Volná místa' ) || false === strpos( $occupancy_html, 'Poznámka k obsazenosti' ) ) {
-		throw new RuntimeException( 'The event occupancy meta box is incomplete.' );
-	}
-	$_POST['mei_event_occupancy_nonce'] = wp_create_nonce( 'mei_save_event_occupancy_' . $event_id );
-	$_POST['mei_event_capacity']        = '';
-	$_POST['mei_event_available_places'] = '0';
-	$_POST['mei_event_occupancy_note']  = 'ZŠ Bohumila Hrabala';
-	MEI\Plugin::instance()->save_event_occupancy( $event_id, get_post( $event_id ) );
-	if ( metadata_exists( 'post', $event_id, '_mlyn_event_capacity' ) || '0' !== get_post_meta( $event_id, '_mlyn_event_available_places', true ) || 'ZŠ Bohumila Hrabala' !== get_post_meta( $event_id, '_mlyn_event_occupancy_note', true ) ) {
-		throw new RuntimeException( 'The event editor did not preserve blank capacity with zero available places.' );
-	}
-	unset( $_POST['mei_event_occupancy_nonce'], $_POST['mei_event_capacity'], $_POST['mei_event_available_places'], $_POST['mei_event_occupancy_note'] );
 	ob_start();
 	MEI\Plugin::instance()->render_profile_defaults_box( get_post( $profile_id ) );
 	$profile_defaults_html = ob_get_clean();
@@ -112,6 +88,5 @@ try {
 	}
 	echo "MEI admin-page smoke test passed.\n";
 } finally {
-	wp_delete_post( $event_id, true );
 	wp_delete_post( $profile_id, true );
 }

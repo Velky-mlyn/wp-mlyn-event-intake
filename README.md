@@ -17,7 +17,7 @@ An empty selector whitelist allows all existing values; selecting one or more va
 
 Fee values distinguish three states: empty stores no fee and hides the fee row in the Velký mlýn event template, `0` means a free event, and a positive number is a paid amount.
 
-Event occupancy uses three independent values: optional total capacity, optional available places, and an optional note. Empty numeric values are not tracked, while zero available places marks an event as fully occupied even when total capacity is unknown. Organizer-profile defaults seed new intake rows. Organizers and administrators can override all three values in the intake table, and administrators can also edit them on the linked event; either editing route updates the intake source of truth.
+Event occupancy uses three independent values supplied by the required **Mlýn Event** plugin: optional total capacity, optional available places, and an optional note. Empty numeric values are not tracked, while zero available places marks an event as fully occupied even when total capacity is unknown. Organizer-profile defaults seed new intake rows. Organizers and administrators can override all three values in the intake table, and administrators can also edit them on the linked event; either editing route updates the intake source of truth.
 
 The **Název**, **Začátek**, **Konec**, and **Vstupné** headers sort the
 currently displayed rows in the browser. An arrow identifies the active sort
@@ -25,6 +25,11 @@ column and direction. The initial order is **Začátek** ascending, matching the
 database query; sorting is not persisted after leaving the page.
 
 ## Changelog
+
+### 0.5.0
+
+- Moved event metadata registration and the event-editor occupancy box to the required Mlýn Event plugin.
+- Integrated occupancy imports and direct event edits through the Mlýn Event public API.
 
 ### 0.4.0
 

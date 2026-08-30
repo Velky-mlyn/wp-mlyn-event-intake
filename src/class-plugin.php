@@ -19,9 +19,6 @@ final class Plugin {
 	private const PROFILE_USER     = '_mei_user_id';
 	private const PROFILE_SETTINGS = '_mei_profile_settings';
 	private const OPTION_SETTINGS  = 'mei_settings';
-	private const EVENT_CAPACITY   = '_mlyn_event_capacity';
-	private const EVENT_AVAILABLE  = '_mlyn_event_available_places';
-	private const EVENT_NOTE       = '_mlyn_event_occupancy_note';
 
 	private static $instance;
 	private $database;
@@ -62,7 +59,6 @@ final class Plugin {
 		$this->sync     = new TEC_Sync( $this->database );
 
 		add_action( 'init', array( $this, 'register_profile_type' ) );
-		add_action( 'init', array( $this, 'register_event_meta' ) );
 		add_action( 'admin_menu', array( $this, 'register_admin_menu' ), 20 );
 		add_action( 'admin_menu', array( $this, 'restrict_organizer_menu' ), 999 );
 		add_action( 'admin_init', array( $this, 'redirect_organizer_dashboard' ) );
@@ -70,8 +66,7 @@ final class Plugin {
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
 		add_action( 'add_meta_boxes_' . self::PROFILE_TYPE, array( $this, 'register_profile_meta_boxes' ) );
 		add_action( 'save_post_' . self::PROFILE_TYPE, array( $this, 'save_profile' ), 10, 2 );
-		add_action( 'add_meta_boxes_tribe_events', array( $this, 'register_event_occupancy_meta_box' ) );
-		add_action( 'save_post_tribe_events', array( $this, 'save_event_occupancy' ), 10, 2 );
+		add_action( 'mlyn_event_occupancy_updated', array( $this, 'sync_event_occupancy_to_intake' ), 10, 2 );
 		add_action( 'admin_notices', array( $this, 'render_dependency_notice' ) );
 		add_action( 'admin_post_mei_save_events', array( $this, 'save_events' ) );
 		add_action( 'admin_post_mei_import_events', array( $this, 'import_events' ) );
@@ -119,88 +114,14 @@ final class Plugin {
 		);
 	}
 
-	public function register_event_meta(): void {
-		foreach ( array( self::EVENT_CAPACITY, self::EVENT_AVAILABLE ) as $meta_key ) {
-			register_post_meta(
-				'tribe_events',
-				$meta_key,
-				array(
-					'type'              => 'integer',
-					'single'            => true,
-					'show_in_rest'      => false,
-					'sanitize_callback' => static function ( $value ): int {
-						return max( 0, (int) $value );
-					},
-					'auth_callback'     => static function ( $allowed, $key, $post_id ): bool {
-						return current_user_can( 'edit_post', (int) $post_id );
-					},
-				)
-			);
-		}
-		register_post_meta(
-			'tribe_events',
-			self::EVENT_NOTE,
-			array(
-				'type'              => 'string',
-				'single'            => true,
-				'show_in_rest'      => false,
-				'sanitize_callback' => 'sanitize_textarea_field',
-				'auth_callback'     => static function ( $allowed, $key, $post_id ): bool {
-					return current_user_can( 'edit_post', (int) $post_id );
-				},
-			)
+	public function sync_event_occupancy_to_intake( int $event_id, array $occupancy ): void {
+		$this->database->update_occupancy_by_event(
+			$event_id,
+			isset( $occupancy['capacity'] ) ? (int) $occupancy['capacity'] : null,
+			isset( $occupancy['available_places'] ) ? (int) $occupancy['available_places'] : null,
+			(string) ( $occupancy['note'] ?? '' ),
+			get_current_user_id()
 		);
-	}
-
-	public function register_event_occupancy_meta_box(): void {
-		add_meta_box(
-			'mei-event-occupancy',
-			__( 'Obsazenost', 'mlyn-event-intake' ),
-			array( $this, 'render_event_occupancy_meta_box' ),
-			'tribe_events',
-			'side',
-			'low'
-		);
-	}
-
-	public function render_event_occupancy_meta_box( WP_Post $post ): void {
-		$capacity  = metadata_exists( 'post', $post->ID, self::EVENT_CAPACITY ) ? (string) get_post_meta( $post->ID, self::EVENT_CAPACITY, true ) : '';
-		$available = metadata_exists( 'post', $post->ID, self::EVENT_AVAILABLE ) ? (string) get_post_meta( $post->ID, self::EVENT_AVAILABLE, true ) : '';
-		$note      = metadata_exists( 'post', $post->ID, self::EVENT_NOTE ) ? (string) get_post_meta( $post->ID, self::EVENT_NOTE, true ) : '';
-		wp_nonce_field( 'mei_save_event_occupancy_' . $post->ID, 'mei_event_occupancy_nonce' );
-		?>
-		<p><label for="mei-event-capacity"><strong><?php esc_html_e( 'Kapacita', 'mlyn-event-intake' ); ?></strong></label><br><input id="mei-event-capacity" class="widefat" type="number" min="0" step="1" name="mei_event_capacity" value="<?php echo esc_attr( $capacity ); ?>"></p>
-		<p><label for="mei-event-available"><strong><?php esc_html_e( 'Volná místa', 'mlyn-event-intake' ); ?></strong></label><br><input id="mei-event-available" class="widefat" type="number" min="0" step="1" name="mei_event_available_places" value="<?php echo esc_attr( $available ); ?>"></p>
-		<p><label for="mei-event-occupancy-note"><strong><?php esc_html_e( 'Poznámka k obsazenosti', 'mlyn-event-intake' ); ?></strong></label><br><textarea id="mei-event-occupancy-note" class="widefat" rows="3" maxlength="500" name="mei_event_occupancy_note"><?php echo esc_textarea( $note ); ?></textarea></p>
-		<p class="description"><?php esc_html_e( 'Pole mohou zůstat prázdná. Nula volných míst označí akci jako obsazenou i bez uvedené kapacity.', 'mlyn-event-intake' ); ?></p>
-		<?php
-	}
-
-	public function save_event_occupancy( int $post_id, WP_Post $post ): void {
-		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) || 'tribe_events' !== $post->post_type ) {
-			return;
-		}
-		if ( ! isset( $_POST['mei_event_occupancy_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['mei_event_occupancy_nonce'] ) ), 'mei_save_event_occupancy_' . $post_id ) ) {
-			return;
-		}
-		if ( ! current_user_can( 'edit_post', $post_id ) ) {
-			return;
-		}
-
-		$capacity_valid  = true;
-		$available_valid = true;
-		$capacity        = $this->parse_nullable_count( $_POST['mei_event_capacity'] ?? '', $capacity_valid );
-		$available       = $this->parse_nullable_count( $_POST['mei_event_available_places'] ?? '', $available_valid );
-		$note            = mb_substr( sanitize_textarea_field( (string) wp_unslash( $_POST['mei_event_occupancy_note'] ?? '' ) ), 0, 500 );
-		if ( ! $capacity_valid || ! $available_valid || ( null !== $capacity && null !== $available && $available > $capacity ) ) {
-			$this->flag_occupancy_validation_error();
-			return;
-		}
-
-		$this->save_nullable_count_meta( $post_id, self::EVENT_CAPACITY, $capacity );
-		$this->save_nullable_count_meta( $post_id, self::EVENT_AVAILABLE, $available );
-		$this->save_nullable_text_meta( $post_id, self::EVENT_NOTE, $note );
-		$this->database->update_occupancy_by_event( $post_id, $capacity, $available, $note, get_current_user_id() );
 	}
 
 	public function register_admin_menu(): void {
@@ -464,7 +385,7 @@ final class Plugin {
 		if ( $this->sync->is_available() || ! current_user_can( 'activate_plugins' ) ) {
 			return;
 		}
-		echo '<div class="notice notice-warning"><p>' . esc_html__( 'Mlýn Event Intake requires an active The Events Calendar plugin. Saving intake rows remains available, but importing is disabled.', 'mlyn-event-intake' ) . '</p></div>';
+		echo '<div class="notice notice-warning"><p>' . esc_html__( 'Mlýn Event Intake requires active Mlýn Event and The Events Calendar plugins. Saving intake rows remains available, but importing is disabled.', 'mlyn-event-intake' ) . '</p></div>';
 	}
 
 	public function render_events_page(): void {
@@ -1094,22 +1015,6 @@ final class Plugin {
 			return null;
 		}
 		return (int) $count;
-	}
-
-	private function save_nullable_count_meta( int $post_id, string $meta_key, ?int $value ): void {
-		if ( null === $value ) {
-			delete_post_meta( $post_id, $meta_key );
-			return;
-		}
-		update_post_meta( $post_id, $meta_key, $value );
-	}
-
-	private function save_nullable_text_meta( int $post_id, string $meta_key, string $value ): void {
-		if ( '' === $value ) {
-			delete_post_meta( $post_id, $meta_key );
-			return;
-		}
-		update_post_meta( $post_id, $meta_key, $value );
 	}
 
 	private function flag_occupancy_validation_error(): void {
